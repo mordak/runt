@@ -222,13 +222,20 @@ impl SyncDir {
             .select(&self.mailbox.as_str())
             .map_err(|e| format!("Could not SELECT {}: {}", self.mailbox, e))
             .and_then(|mailbox| {
+                println!("Mailbox: {:?}", mailbox);
+
                 let last_seen_uid = self.cache.get_last_seen_uid();
+
+                // TODO: HIGHESTMODSEQ support
 
                 self.refresh_cache(last_seen_uid, self.cache.is_valid(&mailbox))
                     .and_then(|_| self.cache.update_remote_state(&mailbox))
                     .and_then(|_| self.push_local_changes())
                     .and_then(|_| self.get_new_messages(last_seen_uid + 1))
-                    .and_then(|_| self.idle())
+                    //.and_then(|_| self.idle())
+                    // FIXME: idle will return when the mailbox
+                    // changes, so we will need to handle the changes
+                    // and then loop again..
             })
             .unwrap_or_else(|e| eprintln!("Error syncing: {}", e));
 
