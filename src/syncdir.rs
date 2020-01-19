@@ -102,8 +102,8 @@ impl SyncDir {
 
         if meta.needs_refetch(fetch) {
             // Pull down a whole new copy of the message.
-            self.delete_message(meta.uid())
-                .and_then(|_| self.cache_message_for_uid(meta.uid()))
+            self.delete_message(meta.uid())?;
+            self.cache_message_for_uid(meta.uid())
         } else {
             println!("Updating UID {}", fetch.uid.expect("No UID"));
             self.cache
@@ -112,17 +112,16 @@ impl SyncDir {
                     self.maildir
                         .set_flags(newmeta.id(), &newmeta.flags())
                         .map_err(|e| format!("Set message flags failed: {}", e))
-                })
-                .and_then(|_| {
-                    if meta.needs_move_from_new_to_cur(fetch) {
-                        println!("Moving {} {} from new to cur", meta.uid(), meta.id());
-                        self.maildir
-                            .move_new_to_cur(meta.id())
-                            .map_err(|e| format!("Move message id {} failed: {}", meta.id(), e))
-                    } else {
-                        Ok(())
-                    }
-                })
+                })?;
+
+            if meta.needs_move_from_new_to_cur(fetch) {
+                println!("Moving {} {} from new to cur", meta.uid(), meta.id());
+                self.maildir
+                    .move_new_to_cur(meta.id())
+                    .map_err(|e| format!("Move message id {} failed: {}", meta.id(), e))
+            } else {
+                Ok(())
+            }
         }
     }
 
@@ -155,13 +154,9 @@ impl SyncDir {
                 self.maildir
                     .delete(meta.id())
                     .map_err(|e| format!("Maildir delete failed for UID {}: {}", uid, e))
-            })
-            .and_then(|_| {
-                self.cache
-                    .delete_uid(uid)
-                    .map_err(|e| format!("Could not delete cachefile for UID {}: {}", uid, e))
-            })
-            .map(|_| ())
+            })?;
+
+        self.cache.delete_uid(uid)
     }
 
     fn remove_absent_uids(&mut self, zc_vec_fetch: &ZeroCopy<Vec<Fetch>>) -> Result<(), String> {
@@ -229,7 +224,6 @@ impl SyncDir {
             .and_then(|mailbox| {
                 let last_seen_uid = self.cache.get_last_seen_uid();
 
-                // Refresh the cache
                 self.refresh_cache(last_seen_uid, self.cache.is_valid(&mailbox))
                     .and_then(|_| self.cache.update_remote_state(&mailbox))
                     .and_then(|_| self.push_local_changes())
