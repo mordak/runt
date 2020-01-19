@@ -20,12 +20,9 @@ pub struct Config {
 
 impl Config {
     pub fn new() -> Config {
-        let mut home = match dirs::home_dir() {
-            Some(path) => path,
-            _ => PathBuf::from(""),
-        };
-        home.push(".runt");
-        let mut f = File::open(home).unwrap();
+        let mut dir = Config::dir();
+        dir.push("config");
+        let mut f = File::open(dir).unwrap();
         let mut buf: String = String::new();
         f.read_to_string(&mut buf).unwrap();
         let mut config: Config = toml::from_str(&buf).unwrap();
@@ -46,6 +43,15 @@ impl Config {
             );
         }
         config
+    }
+
+    pub fn dir() -> PathBuf {
+        let mut home = match dirs::home_dir() {
+            Some(path) => path,
+            _ => PathBuf::from(""),
+        };
+        home.push(".runt");
+        home
     }
 
     fn get_server_ca_cert(&self) -> Option<Certificate> {
