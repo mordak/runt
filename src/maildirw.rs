@@ -27,9 +27,9 @@ impl Maildir {
         .map_err(|e| format!("Message store failed: {}", e))
     }
 
-    pub fn move_message_to_cur(&mut self, id: &str) -> Result<(), String> {
+    pub fn move_message_to_cur(&mut self, id: &str, flags: &str) -> Result<(), String> {
         self.maildir
-            .move_new_to_cur(id)
+            .move_new_to_cur_with_flags(id, flags)
             .map_err(|e| format!("Move message to cur failed for id{}: {}", id, e))
     }
 

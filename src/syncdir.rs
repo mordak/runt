@@ -69,16 +69,14 @@ impl SyncDir {
         } else {
             println!("Updating UID {}", fetch.uid.expect("No UID"));
             self.cache.update_uid(fetch).and_then(|newmeta| {
-                self.maildir
-                    .set_flags_for_message(newmeta.id(), &newmeta.flags())
-            })?;
-
-            if meta.needs_move_from_new_to_cur(fetch) {
-                println!("Moving {} {} from new to cur", meta.uid(), meta.id());
-                self.maildir.move_message_to_cur(meta.id())
-            } else {
-                Ok(())
-            }
+                if meta.needs_move_from_new_to_cur(fetch) {
+                    println!("Moving {} {} from new to cur", meta.uid(), meta.id());
+                    self.maildir.move_message_to_cur(meta.id(), &newmeta.flags())
+                } else {
+                    self.maildir
+                        .set_flags_for_message(newmeta.id(), &newmeta.flags())
+                }
+            })
         }
     }
 
@@ -143,6 +141,7 @@ impl SyncDir {
             x => Some(x),
         };
 
+        println!("Fetching UIDs {}:{:?}", 1, end);
         self.session
             .fetch_uids(1, end)
             .and_then(|zc_vec_fetch| {
@@ -171,22 +170,24 @@ impl SyncDir {
         self.session
             .select_mailbox(&self.mailbox.as_str())
             .and_then(|mailbox| {
-                println!("Mailbox: {:?}", mailbox);
-
-                let last_seen_uid = self.cache.get_last_seen_uid();
 
                 // TODO: HIGHESTMODSEQ support
+                loop {
+                    let last_seen_uid = self.cache.get_last_seen_uid();
+                    let res = self.refresh_cache(last_seen_uid, self.cache.is_valid(&mailbox))
+                        .and_then(|_| self.cache.update_remote_state(&mailbox))
+                        .and_then(|_| self.push_local_changes())
+                        .and_then(|_| self.get_new_messages(last_seen_uid + 1))
+                        .and_then(|_| self.session.idle());
 
-                self.refresh_cache(last_seen_uid, self.cache.is_valid(&mailbox))
-                    .and_then(|_| self.cache.update_remote_state(&mailbox))
-                    .and_then(|_| self.push_local_changes())
-                    .and_then(|_| self.get_new_messages(last_seen_uid + 1))
-                //.and_then(|_| self.idle())
-                // FIXME: idle will return when the mailbox
-                // changes, so we will need to handle the changes
-                // and then loop again..
+                    if res.is_err() {
+                        eprintln!("Error syncing: {}", res.unwrap_err());
+                        break;
+                    };
+                }
+                Ok(())
             })
-            .unwrap_or_else(|e| eprintln!("Error syncing: {}", e));
+            .unwrap();
 
         self.session.logout().unwrap();
     }

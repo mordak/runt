@@ -94,5 +94,4 @@ impl Session {
             .logout()
             .map_err(|e| format!("LOGOUT failed: {}", e))
     }
-
 }
