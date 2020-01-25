@@ -1,8 +1,6 @@
-use imap::Client;
-use native_tls::{Certificate, TlsConnector, TlsStream};
+use native_tls::{Certificate};
 use std::fs::File;
 use std::io::Read;
-use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -54,7 +52,7 @@ impl Config {
         home
     }
 
-    fn get_server_ca_cert(&self) -> Option<Certificate> {
+    pub fn get_server_ca_cert(&self) -> Option<Certificate> {
         if let Some(ca_path) = &self.server_ca_path {
             let mut certbuf: Vec<u8> = Vec::new();
             let mut certfile = File::open(ca_path).unwrap();
@@ -62,17 +60,5 @@ impl Config {
             return Some(Certificate::from_pem(&certbuf).unwrap());
         }
         None
-    }
-
-    pub fn connect(&self) -> imap::error::Result<Client<TlsStream<TcpStream>>> {
-        let socket_addr = (self.server.as_str(), self.port.unwrap());
-
-        let mut tlsconnector = TlsConnector::builder();
-        if self.server_ca_path.is_some() {
-            tlsconnector.add_root_certificate(self.get_server_ca_cert().unwrap());
-        }
-        let tls = tlsconnector.build().unwrap();
-
-        imap::connect(socket_addr, self.server.as_str(), &tls)
     }
 }

@@ -13,19 +13,17 @@ use std::thread::spawn;
 
 mod cache;
 mod config;
+mod maildirw;
 mod syncdir;
+mod imapw;
 use config::Config;
 use syncdir::SyncDir;
+use imapw::Session;
 
 fn main() {
     let baseconfig = Config::new();
     let config = baseconfig.clone();
-    let mut imap_client = config.connect().unwrap();
-    imap_client.debug = true;
-    let mut imap_session = imap_client
-        .login(config.username.as_str(), config.password.unwrap().as_str())
-        .unwrap();
-
+    let mut imap_session = Session::new(&config).unwrap();
     // TODO: get capabilities and bail if no IDLE, UIDPLUS
 
     let mut threads = vec![];
@@ -46,8 +44,10 @@ fn main() {
                         .contains(&imap::types::NameAttribute::NoSelect)
                 {
                     // select it and sync
-                    let mut sd = SyncDir::new(&baseconfig, mailbox.name().to_string());
-                    threads.push(spawn(move || sd.sync()));
+                    match SyncDir::new(&baseconfig, mailbox.name().to_string()) {
+                        Err(e) => panic!("Sync failed: {}", e),
+                        Ok(mut sd) => threads.push(spawn(move || sd.sync())),
+                    }
                 }
             }
         }

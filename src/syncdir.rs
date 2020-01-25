@@ -2,62 +2,33 @@ use cache::maildir_flags_from_imap;
 use cache::Cache;
 use cache::MessageMeta;
 use config::Config;
-//use imap::error::Error as ImapError;
-//use imap::error::Result as ImapResult;
-use imap::types::{Fetch, Flag, Uid, ZeroCopy};
-use imap::Session;
-use maildir::Maildir;
-use native_tls::TlsStream;
-use std::net::TcpStream;
+use maildirw::Maildir;
+use imap::types::{Fetch, Uid, ZeroCopy};
+use imapw::Session;
 use std::ops::Deref;
-use std::path::PathBuf;
-use std::time::Duration;
 use std::vec::Vec;
 
 pub struct SyncDir {
     pub config: Config,
     pub mailbox: String,
-    session: Session<TlsStream<TcpStream>>,
+    session: Session,
     cache: Cache,
     maildir: Maildir,
 }
 
 impl SyncDir {
-    // FIXME: Return Result
-    pub fn new(config: &Config, mailbox: String) -> SyncDir {
+    pub fn new(config: &Config, mailbox: String) -> Result<SyncDir, String> {
         let myconfig = config.clone();
-        let client = config.connect().unwrap();
-        let session = client
-            .login(
-                myconfig.username.as_str(),
-                myconfig.password.as_ref().unwrap(),
-            )
-            .unwrap();
-        //session.debug = true;
+        let session = Session::new(&myconfig)?;
         let cache = Cache::new(&myconfig.account, &mailbox).unwrap();
-        let mut maildirpath = PathBuf::from(&myconfig.maildir);
-        maildirpath.push(&mailbox);
-        let maildir = Maildir::from(maildirpath);
-        if let Err(e) = maildir.create_dirs() {
-            panic!("Could not create maildir structure: {}", e);
-        }
-        SyncDir {
+        let maildir = Maildir::new(&myconfig.maildir, &myconfig.account, &mailbox)?;
+        Ok(SyncDir {
             config: myconfig,
             mailbox,
             session,
             cache,
             maildir,
-        }
-    }
-
-    fn idle(&mut self) -> Result<(), String> {
-        self.session
-            .idle()
-            .map_err(|e| format!("{}", e))
-            .and_then(|mut i| {
-                i.set_keepalive(Duration::from_secs(5 * 60));
-                i.wait_keepalive().map_err(|e| format!("{}", e))
-            })
+        })
     }
 
     fn save_message_in_maildir(&mut self, fetch: &Fetch) -> Result<MessageMeta, String> {
@@ -65,24 +36,15 @@ impl SyncDir {
             .body()
             .ok_or_else(|| format!("No BODY in FETCH result"))
             .and_then(|body| {
-                if fetch.flags().contains(&Flag::Seen) {
-                    self.maildir
-                        .store_cur_with_flags(body, &maildir_flags_from_imap(fetch.flags()))
-                } else {
-                    self.maildir.store_new(body)
-                }
-                .map_err(|e| format!("Message store failed: {}", e))
-                .and_then(|id| self.cache.add_uid(&id, &fetch))
+                self.maildir
+                    .save_message(body, &maildir_flags_from_imap(fetch.flags()))
             })
+            .and_then(|id| self.cache.add_uid(&id, &fetch))
     }
 
     fn cache_message_for_uid(&mut self, uid: Uid) -> Result<(), String> {
         self.session
-            .uid_fetch(
-                format!("{}", uid),
-                "(UID RFC822.SIZE INTERNALDATE FLAGS BODY.PEEK[])",
-            )
-            .map_err(|e| format!("{}", e))
+            .fetch_uid(uid)
             .and_then(|zc_vec_fetch| {
                 for fetch in zc_vec_fetch.deref() {
                     eprintln!("Fetching UID {} FLAGS {:?}", uid, fetch.flags());
@@ -106,19 +68,14 @@ impl SyncDir {
             self.cache_message_for_uid(meta.uid())
         } else {
             println!("Updating UID {}", fetch.uid.expect("No UID"));
-            self.cache
-                .update_uid(fetch)
-                .and_then(|newmeta| {
-                    self.maildir
-                        .set_flags(newmeta.id(), &newmeta.flags())
-                        .map_err(|e| format!("Set message flags failed: {}", e))
-                })?;
+            self.cache.update_uid(fetch).and_then(|newmeta| {
+                self.maildir
+                    .set_flags_for_message(newmeta.id(), &newmeta.flags())
+            })?;
 
             if meta.needs_move_from_new_to_cur(fetch) {
                 println!("Moving {} {} from new to cur", meta.uid(), meta.id());
-                self.maildir
-                    .move_new_to_cur(meta.id())
-                    .map_err(|e| format!("Move message id {} failed: {}", meta.id(), e))
+                self.maildir.move_message_to_cur(meta.id())
             } else {
                 Ok(())
             }
@@ -150,11 +107,7 @@ impl SyncDir {
         self.cache
             .get_uid(uid)
             .ok_or_else(|| format!("UID {} file disappeared?", uid))
-            .and_then(|meta| {
-                self.maildir
-                    .delete(meta.id())
-                    .map_err(|e| format!("Maildir delete failed for UID {}: {}", uid, e))
-            })?;
+            .and_then(|meta| self.maildir.delete_message(meta.id()))?;
 
         self.cache.delete_uid(uid)
     }
@@ -185,15 +138,13 @@ impl SyncDir {
     }
 
     fn refresh_cache(&mut self, last_seen_uid: u32, uidvalid: bool) -> Result<(), String> {
-        let range = if last_seen_uid == 0 {
-            "1:*".to_string()
-        } else {
-            format!("1:{}", last_seen_uid)
+        let end : Option<u32> = match last_seen_uid {
+            0 => None,
+            x => Some(x),
         };
 
         self.session
-            .uid_fetch(range, "(UID FLAGS INTERNALDATE RFC822.SIZE)")
-            .map_err(|e| format!("Refresh cache: {}", e))
+            .fetch_uids(1, end)
             .and_then(|zc_vec_fetch| {
                 if !uidvalid {
                     // We have a new state, so delete the existing one
@@ -208,8 +159,7 @@ impl SyncDir {
 
     fn get_new_messages(&mut self, uid: u32) -> Result<(), String> {
         self.session
-            .uid_fetch(format!("{}:*", uid), "(UID FLAGS INTERNALDATE RFC822.SIZE)")
-            .map_err(|e| format!("Get new messages: {}", e))
+            .fetch_uids(uid, None)
             .and_then(|zc_vec_fetch| self.cache_uids(&zc_vec_fetch))
     }
 
@@ -219,8 +169,7 @@ impl SyncDir {
 
     pub fn sync(&mut self) {
         self.session
-            .select(&self.mailbox.as_str())
-            .map_err(|e| format!("Could not SELECT {}: {}", self.mailbox, e))
+            .select_mailbox(&self.mailbox.as_str())
             .and_then(|mailbox| {
                 println!("Mailbox: {:?}", mailbox);
 
@@ -232,10 +181,10 @@ impl SyncDir {
                     .and_then(|_| self.cache.update_remote_state(&mailbox))
                     .and_then(|_| self.push_local_changes())
                     .and_then(|_| self.get_new_messages(last_seen_uid + 1))
-                    //.and_then(|_| self.idle())
-                    // FIXME: idle will return when the mailbox
-                    // changes, so we will need to handle the changes
-                    // and then loop again..
+                //.and_then(|_| self.idle())
+                // FIXME: idle will return when the mailbox
+                // changes, so we will need to handle the changes
+                // and then loop again..
             })
             .unwrap_or_else(|e| eprintln!("Error syncing: {}", e));
 
