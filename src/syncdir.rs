@@ -34,7 +34,7 @@ impl SyncDir {
     fn save_message_in_maildir(&mut self, fetch: &Fetch) -> Result<MessageMeta, String> {
         fetch
             .body()
-            .ok_or_else(|| format!("No BODY in FETCH result"))
+            .ok_or_else(|| "No BODY in FETCH result".to_string())
             .and_then(|body| {
                 self.maildir
                     .save_message(body, &maildir_flags_from_imap(fetch.flags()))
@@ -141,7 +141,7 @@ impl SyncDir {
             x => Some(x),
         };
 
-        println!("Fetching UIDs {}:{:?}", 1, end);
+        println!("Fetching UIDs 1:{:?}", end);
         self.session
             .fetch_uids(1, end)
             .and_then(|zc_vec_fetch| {
@@ -180,8 +180,8 @@ impl SyncDir {
                         .and_then(|_| self.get_new_messages(last_seen_uid + 1))
                         .and_then(|_| self.session.idle());
 
-                    if res.is_err() {
-                        eprintln!("Error syncing: {}", res.unwrap_err());
+                    if let Err(e) = res {
+                        eprintln!("Error syncing: {}", e);
                         break;
                     };
                 }
