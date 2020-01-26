@@ -1,6 +1,7 @@
 extern crate chrono;
 extern crate dirs;
 extern crate imap;
+extern crate imap_proto;
 extern crate maildir;
 extern crate native_tls;
 extern crate regex;
@@ -13,18 +14,17 @@ use std::thread::spawn;
 
 mod cache;
 mod config;
+mod imapw;
 mod maildirw;
 mod syncdir;
-mod imapw;
 use config::Config;
-use syncdir::SyncDir;
 use imapw::Session;
+use syncdir::SyncDir;
 
 fn main() {
     let baseconfig = Config::new();
     let config = baseconfig.clone();
     let mut imap_session = Session::new(&config).unwrap();
-    // TODO: get capabilities and bail if no IDLE, UIDPLUS
 
     let mut threads = vec![];
     match imap_session.list(None, Some("*")) {

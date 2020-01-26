@@ -2,9 +2,9 @@ use cache::maildir_flags_from_imap;
 use cache::Cache;
 use cache::MessageMeta;
 use config::Config;
-use maildirw::Maildir;
 use imap::types::{Fetch, Uid, ZeroCopy};
 use imapw::Session;
+use maildirw::Maildir;
 use std::ops::Deref;
 use std::vec::Vec;
 
@@ -43,17 +43,15 @@ impl SyncDir {
     }
 
     fn cache_message_for_uid(&mut self, uid: Uid) -> Result<(), String> {
-        self.session
-            .fetch_uid(uid)
-            .and_then(|zc_vec_fetch| {
-                for fetch in zc_vec_fetch.deref() {
-                    eprintln!("Fetching UID {} FLAGS {:?}", uid, fetch.flags());
-                    if let Err(e) = self.save_message_in_maildir(fetch) {
-                        return Err(format!("Save UID {} failed: {}", uid, e));
-                    }
+        self.session.fetch_uid(uid).and_then(|zc_vec_fetch| {
+            for fetch in zc_vec_fetch.deref() {
+                eprintln!("Fetching UID {} FLAGS {:?}", uid, fetch.flags());
+                if let Err(e) = self.save_message_in_maildir(fetch) {
+                    return Err(format!("Save UID {} failed: {}", uid, e));
                 }
-                Ok(())
-            })
+            }
+            Ok(())
+        })
     }
 
     fn update_cache_for_uid(&mut self, meta: &MessageMeta, fetch: &Fetch) -> Result<(), String> {
@@ -71,7 +69,8 @@ impl SyncDir {
             self.cache.update_uid(fetch).and_then(|newmeta| {
                 if meta.needs_move_from_new_to_cur(fetch) {
                     println!("Moving {} {} from new to cur", meta.uid(), meta.id());
-                    self.maildir.move_message_to_cur(meta.id(), &newmeta.flags())
+                    self.maildir
+                        .move_message_to_cur(meta.id(), &newmeta.flags())
                 } else {
                     self.maildir
                         .set_flags_for_message(newmeta.id(), &newmeta.flags())
@@ -136,24 +135,22 @@ impl SyncDir {
     }
 
     fn refresh_cache(&mut self, last_seen_uid: u32, uidvalid: bool) -> Result<(), String> {
-        let end : Option<u32> = match last_seen_uid {
+        let end: Option<u32> = match last_seen_uid {
             0 => None,
             x => Some(x),
         };
 
         println!("Fetching UIDs 1:{:?}", end);
-        self.session
-            .fetch_uids(1, end)
-            .and_then(|zc_vec_fetch| {
-                if !uidvalid {
-                    // We have a new state, so delete the existing one
-                    self.cache.delete_local_state()
-                } else {
-                    Ok(())
-                }
-                .and_then(|_| self.cache_uids(&zc_vec_fetch))
-                .and_then(|_| self.remove_absent_uids(&zc_vec_fetch))
-            })
+        self.session.fetch_uids(1, end).and_then(|zc_vec_fetch| {
+            if !uidvalid {
+                // We have a new state, so delete the existing one
+                self.cache.delete_local_state()
+            } else {
+                Ok(())
+            }
+            .and_then(|_| self.cache_uids(&zc_vec_fetch))
+            .and_then(|_| self.remove_absent_uids(&zc_vec_fetch))
+        })
     }
 
     fn get_new_messages(&mut self, uid: u32) -> Result<(), String> {
@@ -170,11 +167,11 @@ impl SyncDir {
         self.session
             .select_mailbox(&self.mailbox.as_str())
             .and_then(|mailbox| {
-
                 // TODO: HIGHESTMODSEQ support
                 loop {
                     let last_seen_uid = self.cache.get_last_seen_uid();
-                    let res = self.refresh_cache(last_seen_uid, self.cache.is_valid(&mailbox))
+                    let res = self
+                        .refresh_cache(last_seen_uid, self.cache.is_valid(&mailbox))
                         .and_then(|_| self.cache.update_remote_state(&mailbox))
                         .and_then(|_| self.push_local_changes())
                         .and_then(|_| self.get_new_messages(last_seen_uid + 1))

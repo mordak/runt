@@ -4,12 +4,12 @@ mod syncflags;
 
 use self::syncflags::SyncFlags;
 use config::Config;
-use imap::types::{Flag, Fetch, Mailbox, Uid};
+use imap::types::{Fetch, Flag, Mailbox, Uid};
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use self::statefile::StateFile;
 pub use self::messagemeta::MessageMeta;
+use self::statefile::StateFile;
 
 // FIXME: Move this to imapw?
 /// Convert imap flags to maildir flags

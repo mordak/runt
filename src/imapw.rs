@@ -1,10 +1,12 @@
 use config::Config;
 use imap::types::{Fetch, Mailbox, Name, ZeroCopy};
-use imap::Session as SubSession;
 use imap::Client;
-use native_tls::TlsStream;
+use imap::Session as SubSession;
+use imap_proto::types::Capability;
 use native_tls::TlsConnector;
+use native_tls::TlsStream;
 use std::net::TcpStream;
+use std::ops::Deref;
 use std::time::Duration;
 use std::vec::Vec;
 
@@ -15,16 +17,22 @@ pub struct Session {
 impl Session {
     pub fn new(config: &Config) -> Result<Session, String> {
         let client = Session::connect(config)?;
-        let session = client
-            .login(
-                config.username.as_str(),
-                config.password.as_ref().unwrap(),
-            )
+        let mut session = client
+            .login(config.username.as_str(), config.password.as_ref().unwrap())
             .map_err(|e| format!("Login failed: {:?}", e))?;
 
-        Ok(Session {
-            session,
-        })
+        let capabilities = session
+            .capabilities()
+            .map_err(|e| format!("CAPABILITIES Error: {}", e))?;
+        if !capabilities.deref().has(&Capability::Atom("QRESYNC"))
+            || !capabilities.deref().has(&Capability::Atom("ENABLE"))
+            || !capabilities.deref().has(&Capability::Atom("UIDPLUS"))
+            || !capabilities.deref().has(&Capability::Atom("IDLE"))
+        {
+            return Err("Missing CAPABILITY support".to_string());
+        }
+
+        Ok(Session { session })
     }
 
     #[allow(dead_code)]
@@ -45,7 +53,11 @@ impl Session {
             .map_err(|e| format!("Connection to {:?} failed: {}", socket_addr, e))
     }
 
-    pub fn list(&mut self, reference_name: Option<&str>, mailbox_pattern: Option<&str>) -> Result<ZeroCopy<Vec<Name>>, String> {
+    pub fn list(
+        &mut self,
+        reference_name: Option<&str>,
+        mailbox_pattern: Option<&str>,
+    ) -> Result<ZeroCopy<Vec<Name>>, String> {
         self.session
             .list(reference_name, mailbox_pattern)
             .map_err(|e| format!("LIST failed: {}", e))
@@ -70,9 +82,12 @@ impl Session {
             .map_err(|e| format!("UID FETCH failed: {}", e))
     }
 
-    pub fn fetch_uids(&mut self, first: u32, last: Option<u32>) -> Result<ZeroCopy<Vec<Fetch>>, String> {
-
-        let range = match last  {
+    pub fn fetch_uids(
+        &mut self,
+        first: u32,
+        last: Option<u32>,
+    ) -> Result<ZeroCopy<Vec<Fetch>>, String> {
+        let range = match last {
             None => format!("{}:*", first),
             Some(n) if n > first => format!("{}:{}", first, n),
             _ => return Err(format!("Invalid range {}:{}", first, last.unwrap())),
