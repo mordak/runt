@@ -65,11 +65,21 @@ impl Cache {
         self.state.remote_last = chrono::offset::Utc::now().timestamp_millis();
         self.state.uid_validity = mailbox.uid_validity.expect("No UIDVALIDITY in Mailbox");
         self.state.uid_next = mailbox.uid_next.expect("No UIDNEXT in Mailbox");
+        self.state.highest_mod_seq = mailbox.highest_mod_seq.expect("No HIGHESTMODSEQ in Mailbox");
         self.state.save(&self.statefile)
     }
 
     pub fn get_last_seen_uid(&self) -> u32 {
         self.state.last_seen_uid
+    }
+
+    pub fn get_highest_mod_seq(&self) -> u64 {
+        self.state.highest_mod_seq
+    }
+
+    pub fn set_highest_mod_seq(&mut self, seq: u64) -> Result<(), String> {
+        self.state.highest_mod_seq = seq;
+        self.state.save(&self.statefile)
     }
 
     pub fn get_known_uids(&self) -> Result<HashSet<u32>, String> {

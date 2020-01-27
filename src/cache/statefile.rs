@@ -9,6 +9,7 @@ pub struct StateFile {
     pub uid_validity: u32,
     pub uid_next: u32,
     pub last_seen_uid: u32,
+    pub highest_mod_seq: u64,
 }
 
 impl StateFile {
@@ -28,6 +29,7 @@ impl StateFile {
             uid_validity: 0,
             uid_next: 0,
             last_seen_uid: 0,
+            highest_mod_seq: 0,
         };
         blank.save(path).map(|_| blank)
     }

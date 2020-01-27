@@ -99,6 +99,7 @@ impl Session {
     }
 
     pub fn select_mailbox(&mut self, mailbox: &str) -> Result<Mailbox, String> {
+        self.debug(true);
         self.session
             .select(mailbox)
             .map_err(|e| format!("SELECT {} failed: {}", mailbox, e))
