@@ -78,8 +78,12 @@ impl Cache {
     }
 
     pub fn set_highest_mod_seq(&mut self, seq: u64) -> Result<(), String> {
-        self.state.highest_mod_seq = seq;
-        self.state.save(&self.statefile)
+        if seq > self.state.highest_mod_seq {
+            self.state.highest_mod_seq = seq;
+            self.state.save(&self.statefile)
+        } else {
+            Ok(())
+        }
     }
 
     pub fn get_known_uids(&self) -> Result<HashSet<u32>, String> {
