@@ -6,6 +6,15 @@ pub struct Maildir {
     maildir: SubMaildir,
 }
 
+/*
+pub struct MaildirEntry {
+    id: String,
+    flags: String,
+    size: String,
+    modified: i64,
+}
+*/
+
 impl Maildir {
     pub fn new(root: &str, account: &str, mailbox: &str) -> Result<Maildir, String> {
         let mut maildirpath = PathBuf::from(root);

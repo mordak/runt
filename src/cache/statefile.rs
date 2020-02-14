@@ -1,15 +1,20 @@
 use std::io::Write;
 use std::path::PathBuf;
 
-#[derive(Deserialize, Serialize)]
 pub struct StateFile {
-    pub version: u64,
-    pub remote_last: i64,
-    pub local_last: i64,
-    pub uid_validity: u32,
-    pub uid_next: u32,
-    pub last_seen_uid: u32,
-    pub highest_mod_seq: u64,
+    path: PathBuf,
+    state: StateFileFields,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct StateFileFields {
+    version: u64,
+    imap_last: i64,
+    maildir_last: i64,
+    uid_validity: u32,
+    uid_next: u32,
+    last_seen_uid: u32,
+    highest_mod_seq: u64,
 }
 
 impl StateFile {
@@ -23,26 +28,89 @@ impl StateFile {
 
     fn make_new(path: &PathBuf) -> Result<StateFile, String> {
         let blank = StateFile {
-            version: 1,
-            remote_last: 0,
-            local_last: 0,
-            uid_validity: 0,
-            uid_next: 0,
-            last_seen_uid: 0,
-            highest_mod_seq: 0,
+            path: path.to_path_buf(),
+            state: StateFileFields {
+                version: 1,
+                imap_last: 0,
+                maildir_last: 0,
+                uid_validity: 0,
+                uid_next: 0,
+                last_seen_uid: 0,
+                highest_mod_seq: 0,
+            },
         };
-        blank.save(path).map(|_| blank)
+        blank.save().map(|_| blank)
     }
 
     fn from_file(path: &PathBuf) -> Result<StateFile, String> {
         std::fs::read_to_string(path)
             .map_err(|e| format!("{}", e))
             .and_then(|buf| serde_json::from_str(&buf).map_err(|e| format!("{}", e)))
+            .and_then(|state| {
+                Ok(StateFile {
+                    path: path.to_path_buf(),
+                    state,
+                })
+            })
     }
 
-    pub fn save(&self, path: &PathBuf) -> Result<(), String> {
-        std::fs::File::create(path)
-            .and_then(|mut f| f.write_all(&serde_json::to_string_pretty(self).unwrap().as_bytes()))
+    pub fn update_imap(
+        &mut self,
+        uid_validity: u32,
+        uid_next: u32,
+        highest_mod_seq: u64,
+    ) -> Result<(), String> {
+        self.state.imap_last = chrono::offset::Utc::now().timestamp_millis();
+        self.state.uid_validity = uid_validity;
+        self.state.uid_next = uid_next;
+        self.state.highest_mod_seq = highest_mod_seq;
+        self.save()
+    }
+
+    pub fn update_maildir(&mut self) -> Result<(), String> {
+        self.state.maildir_last = chrono::offset::Utc::now().timestamp_millis();
+        self.save()
+    }
+
+    pub fn set_last_seen_uid(&mut self, uid: u32) -> Result<(), String> {
+        self.state.last_seen_uid = uid;
+        self.save()
+    }
+
+    pub fn save(&self) -> Result<(), String> {
+        std::fs::File::create(&self.path)
+            .and_then(|mut f| {
+                f.write_all(
+                    &serde_json::to_string_pretty(&self.state)
+                        .unwrap()
+                        .as_bytes(),
+                )
+            })
             .map_err(|e| format!("{}", e))
     }
+
+    /*
+    pub fn imap_last(&self) -> i64 {
+        self.state.imap_last
+    }
+    pub fn maildir_last(&self) -> i64 {
+        self.state.maildir_last
+    }
+    */
+    pub fn uid_validity(&self) -> u32 {
+        self.state.uid_validity
+    }
+    /*
+    pub fn uid_next(&self) -> u32 {
+        self.state.uid_next
+    }
+    */
+    pub fn last_seen_uid(&self) -> u32 {
+        self.state.last_seen_uid
+    }
+    /*
+    pub fn highest_mod_seq(&self) -> u64 {
+        self.state.highest_mod_seq
+    }
+    */
 }

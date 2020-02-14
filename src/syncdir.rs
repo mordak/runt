@@ -2,7 +2,7 @@ use cache::maildir_flags_from_imap;
 use cache::Cache;
 use cache::MessageMeta;
 use config::Config;
-use imap::types::{Fetch, Uid, ZeroCopy};
+use imap::types::{Fetch, Mailbox, Uid, ZeroCopy};
 use imapw::Session;
 use maildirw::Maildir;
 use std::ops::Deref;
@@ -39,7 +39,7 @@ impl SyncDir {
                 self.maildir
                     .save_message(body, &maildir_flags_from_imap(fetch.flags()))
             })
-            .and_then(|id| self.cache.add_uid(&id, &fetch))
+            .and_then(|id| self.cache.add(&id, &fetch))
     }
 
     fn cache_message_for_uid(&mut self, uid: Uid) -> Result<(), String> {
@@ -66,7 +66,7 @@ impl SyncDir {
             self.cache_message_for_uid(meta.uid())
         } else {
             println!("Updating UID {}", fetch.uid.expect("No UID"));
-            self.cache.update_uid(fetch).and_then(|newmeta| {
+            self.cache.update(fetch).and_then(|newmeta| {
                 if meta.needs_move_from_new_to_cur(fetch) {
                     println!("Moving {} {} from new to cur", meta.uid(), meta.id());
                     self.maildir
@@ -83,7 +83,7 @@ impl SyncDir {
         let mut err = false;
         for fetch in zc_vec_fetch.deref() {
             let uid = fetch.uid.expect("No UID in FETCH response");
-            let res = if let Some(meta) = self.cache.get_uid(uid) {
+            let res = if let Ok(meta) = self.cache.get_uid(uid) {
                 self.update_cache_for_uid(&meta, fetch)
             } else {
                 self.cache_message_for_uid(uid)
@@ -103,10 +103,8 @@ impl SyncDir {
     fn delete_message(&self, uid: u32) -> Result<(), String> {
         self.cache
             .get_uid(uid)
-            .ok_or_else(|| format!("UID {} file disappeared?", uid))
-            .and_then(|meta| self.maildir.delete_message(meta.id()))?;
-
-        self.cache.delete_uid(uid)
+            .and_then(|meta| self.maildir.delete_message(meta.id()))
+            .and_then(|_| self.cache.delete_uid(uid))
     }
 
     fn remove_absent_uids(&mut self, zc_vec_fetch: &ZeroCopy<Vec<Fetch>>) -> Result<(), String> {
@@ -134,7 +132,7 @@ impl SyncDir {
         })
     }
 
-    fn refresh_cache(&mut self, last_seen_uid: u32, uidvalid: bool) -> Result<(), String> {
+    fn refresh_cache(&mut self, last_seen_uid: u32, mailbox: &Mailbox) -> Result<(), String> {
         let end: Option<u32> = match last_seen_uid {
             0 => None,
             x => Some(x),
@@ -142,14 +140,15 @@ impl SyncDir {
 
         println!("Fetching UIDs 1:{:?}", end);
         self.session.fetch_uids(1, end).and_then(|zc_vec_fetch| {
-            if !uidvalid {
+            if !self.cache.is_valid(mailbox) {
                 // We have a new state, so delete the existing one
-                self.cache.delete_local_state()
+                self.cache.delete_maildir_state()
             } else {
                 Ok(())
             }
             .and_then(|_| self.cache_uids(&zc_vec_fetch))
             .and_then(|_| self.remove_absent_uids(&zc_vec_fetch))
+            .and_then(|_| self.cache.update_imap_state(mailbox))
         })
     }
 
@@ -159,11 +158,14 @@ impl SyncDir {
             .and_then(|zc_vec_fetch| self.cache_uids(&zc_vec_fetch))
     }
 
-    fn push_local_changes(&mut self) -> Result<(), String> {
-        Ok(())
+    fn push_maildir_changes(&mut self) -> Result<(), String> {
+        self.cache.update_maildir_state()
     }
 
     pub fn sync(&mut self) {
+        self.session.debug(true);
+        self.session.enable_qresync().unwrap();
+        self.session.debug(false);
         self.session
             .select_mailbox(&self.mailbox.as_str())
             .and_then(|mailbox| {
@@ -171,9 +173,8 @@ impl SyncDir {
                 loop {
                     let last_seen_uid = self.cache.get_last_seen_uid();
                     let res = self
-                        .refresh_cache(last_seen_uid, self.cache.is_valid(&mailbox))
-                        .and_then(|_| self.cache.update_remote_state(&mailbox))
-                        .and_then(|_| self.push_local_changes())
+                        .refresh_cache(last_seen_uid, &mailbox)
+                        .and_then(|_| self.push_maildir_changes())
                         .and_then(|_| self.get_new_messages(last_seen_uid + 1))
                         .and_then(|_| self.session.idle());
 

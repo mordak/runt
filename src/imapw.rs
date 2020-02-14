@@ -98,8 +98,13 @@ impl Session {
             .map_err(|e| format!("{}", e))
     }
 
+    pub fn enable_qresync(&mut self) -> Result<(), String> {
+        self.session
+            .run_command_and_check_ok("ENABLE QRESYNC")
+            .map_err(|e| format!("ENABLE QRESYNC Error: {}", e))
+    }
+
     pub fn select_mailbox(&mut self, mailbox: &str) -> Result<Mailbox, String> {
-        self.debug(true);
         self.session
             .select(mailbox)
             .map_err(|e| format!("SELECT {} failed: {}", mailbox, e))

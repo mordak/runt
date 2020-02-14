@@ -5,6 +5,7 @@ extern crate imap_proto;
 extern crate maildir;
 extern crate native_tls;
 extern crate regex;
+extern crate rusqlite;
 extern crate serde;
 extern crate toml;
 #[macro_use]
