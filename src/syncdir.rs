@@ -6,6 +6,8 @@ use imap::types::{Fetch, Mailbox, Uid, ZeroCopy};
 use imapw::Session;
 use maildirw::Maildir;
 use std::ops::Deref;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::vec::Vec;
 
 pub struct SyncDir {
@@ -162,7 +164,7 @@ impl SyncDir {
         self.cache.update_maildir_state()
     }
 
-    pub fn sync(&mut self) {
+    pub fn sync(&mut self, shutdown: Arc<&AtomicBool>) {
         self.session.debug(true);
         self.session.enable_qresync().unwrap();
         self.session.debug(false);
@@ -182,6 +184,11 @@ impl SyncDir {
                         eprintln!("Error syncing: {}", e);
                         break;
                     };
+
+                    // FIXME: How to kill an idle() when this changes?
+                    if shutdown.load(Ordering::Relaxed) {
+                        break;
+                    }
                 }
                 Ok(())
             })
