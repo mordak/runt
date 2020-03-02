@@ -1,6 +1,6 @@
 use crate::cache::messagemeta::MessageMeta;
 use rusqlite::{params, Connection};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 pub struct Db {
@@ -84,8 +84,26 @@ impl Db {
             .map_err(|e| format!("DELETE FAILED {}: {}", uid, e))
     }
 
-    pub fn get_uids(&self, expect: usize) -> Result<HashSet<u32>, String> {
-        let mut v = HashSet::with_capacity(expect);
+    pub fn num_entries(&self) -> Result<i64, String> {
+        let conn = Connection::open(&self.dbpath).map_err(|e| format!("Open DB: {}", e))?;
+        let mut stmt = conn
+            .prepare("SELECT count(uid) from v1")
+            .map_err(|e| format!("SELECT: {}", e))?;
+
+        stmt.query_row(params![], |r| Ok(r.get_unwrap(0)))
+            .map_err(|e| format!("query_row: {}", e))
+    }
+
+    pub fn expected_entries(&self) -> usize {
+        if let Ok(n) = self.num_entries() {
+            n as usize
+        } else {
+            100
+        }
+    }
+
+    pub fn get_uids(&self) -> Result<HashSet<u32>, String> {
+        let mut v = HashSet::with_capacity(self.expected_entries());
         let conn = Connection::open(&self.dbpath).map_err(|e| format!("Open DB: {}", e))?;
 
         let mut stmt = conn
@@ -100,6 +118,34 @@ impl Db {
             v.insert(r.map_err(|e| format!("fetch row: {}", e))?);
         }
         Ok(v)
+    }
+
+    pub fn get_ids(&self) -> Result<HashMap<String, MessageMeta>, String> {
+        let conn = Connection::open(&self.dbpath).map_err(|e| format!("Open DB: {}", e))?;
+
+        let mut stmt = conn
+            .prepare("SELECT uid, size, internal_date_millis, flags, id FROM v1")
+            .map_err(|e| format!("SELECT FAILED: {}", e))?;
+
+        let mut h = HashMap::with_capacity(self.expected_entries());
+        let rows = stmt
+            .query_map(params![], |r| {
+                Ok(MessageMeta::from_fields(
+                    r.get_unwrap(0),
+                    r.get_unwrap(1),
+                    r.get_unwrap(2),
+                    r.get_unwrap(3),
+                    r.get_unwrap(4),
+                ))
+            })
+            .map_err(|e| format!("query_map: {}", e))?;
+
+        for r in rows {
+            if let Ok(meta) = r {
+                h.insert(meta.id().to_string(), meta);
+            }
+        }
+        Ok(h)
     }
 
     pub fn get_uid(&self, uid: u32) -> Result<MessageMeta, String> {

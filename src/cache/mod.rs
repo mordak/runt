@@ -6,7 +6,7 @@ mod syncflags;
 use self::syncflags::SyncFlags;
 use config::Config;
 use imap::types::{Fetch, Flag, Mailbox};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use self::db::Db;
@@ -91,14 +91,14 @@ impl Cache {
     */
 
     pub fn get_known_uids(&self) -> Result<HashSet<u32>, String> {
-        let max_uid = self.get_last_seen_uid();
-        self.db.get_uids(max_uid as usize)
+        self.db.get_uids()
+    }
+
+    pub fn get_known_ids(&self) -> Result<HashMap<String, MessageMeta>, String> {
+        self.db.get_ids()
     }
 
     pub fn update_maildir_state(&mut self) -> Result<(), String> {
-        // TODO: Fill this in using the maildir stuff
-        //       Find messages in the maildir that are not in the
-        //       cache. Then push those messages to the mailbox.
         self.state.update_maildir()
     }
 

@@ -161,6 +161,15 @@ impl SyncDir {
     }
 
     fn push_maildir_changes(&mut self) -> Result<(), String> {
+        let mut ids = self.cache.get_known_ids()?;
+        let _new = self.maildir.get_updates(&mut ids)?;
+
+        // TODO: For each remaining ids, update the server with the
+        //       new values. For each new, store the message on the
+        //       server and create an entry for the new message.
+        //       Is there a sane way to round-trip the messages
+        //       through the server to get them normal names, etc?
+
         self.cache.update_maildir_state()
     }
 
