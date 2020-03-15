@@ -39,11 +39,10 @@ impl<'a> UidResult<'a> {
 
 impl<'a> From<&'a Fetch> for FetchResult<'a> {
     fn from(fetch: &'a Fetch) -> FetchResult<'a> {
+        // FIXME: Handle MODSEQ here
         if fetch.uid.is_some() && fetch.size.is_some() && fetch.internal_date().is_some() {
             FetchResult::Uid(UidResult { fetch })
-        }
-        // else if ModSeq ...
-        else {
+        } else {
             FetchResult::Other(fetch)
         }
     }

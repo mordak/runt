@@ -87,10 +87,8 @@ impl Maildir {
             let mailentry = mailentry_res.map_err(|e| e.to_string())?;
 
             if let Some(cache_meta) = cache.get(mailentry.id()) {
-                if meta_equal(&mailentry, &cache_meta)? {
-                    if cache.remove(mailentry.id()).is_none() {
-                        return Err(format!("Cache id mismatch: {}", mailentry.id()));
-                    }
+                if meta_equal(&mailentry, &cache_meta)? && cache.remove(mailentry.id()).is_none() {
+                    return Err(format!("Cache id mismatch: {}", mailentry.id()));
                 }
             } else {
                 v.push(mailentry.id().to_string());
