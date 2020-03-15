@@ -3,19 +3,29 @@ use cache::Cache;
 use cache::MessageMeta;
 use config::Config;
 use imap::types::{Fetch, Mailbox, Uid, ZeroCopy};
-use imapw::Session;
+use imapw::{FetchResult, UidResult, Session};
 use maildirw::Maildir;
 use std::ops::Deref;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::vec::Vec;
+use std::sync::mpsc::{channel, Sender, Receiver};
+use std::thread::{JoinHandle, spawn};
+
+#[derive(Debug)]
+pub enum SyncMessage {
+    Exit,
+    ImapChanged,
+    MaildirChanged,
+}
 
 pub struct SyncDir {
     pub config: Config,
     pub mailbox: String,
+    pub sender: Sender<SyncMessage>,
+    receiver: Receiver<SyncMessage>,
     session: Session,
     cache: Cache,
     maildir: Maildir,
+    idlethread: Option<JoinHandle<()>>,
 }
 
 impl SyncDir {
@@ -24,13 +34,33 @@ impl SyncDir {
         let session = Session::new(&myconfig)?;
         let cache = Cache::new(&myconfig.account, &mailbox).unwrap();
         let maildir = Maildir::new(&myconfig.maildir, &myconfig.account, &mailbox)?;
+        let (sender, receiver) = channel();
         Ok(SyncDir {
             config: myconfig,
             mailbox,
+            sender,
+            receiver,
             session,
             cache,
             maildir,
+            idlethread: None,
         })
+    }
+
+    fn idle(&self) -> Result<JoinHandle<()>, String> {
+        let mut session = Session::new(&self.config)?;
+        session.select_mailbox(&self.mailbox.as_str())?;
+        let sender = self.sender.clone();
+        let handle = spawn(move || {
+            println!("IDLE");
+            if let Err(why) = session.idle() {
+                eprintln!("Error in session IDLE: {}", why);
+            }
+            println!("IDLE Done");
+            session.logout().ok();
+            sender.send(SyncMessage::ImapChanged).ok();
+        });
+        Ok(handle)
     }
 
     fn save_message_in_maildir(&mut self, fetch: &Fetch) -> Result<MessageMeta, String> {
@@ -173,30 +203,51 @@ impl SyncDir {
         self.cache.update_maildir_state()
     }
 
-    pub fn sync(&mut self, shutdown: Arc<&AtomicBool>) {
+    pub fn sync(&mut self) {
         self.session.debug(true);
         self.session.enable_qresync().unwrap();
-        self.session.debug(false);
+        self.session.debug(true);
         self.session
             .select_mailbox(&self.mailbox.as_str())
             .and_then(|mailbox| {
                 // TODO: HIGHESTMODSEQ support
                 loop {
                     let last_seen_uid = self.cache.get_last_seen_uid();
+                    dbg!(last_seen_uid);
                     let res = self
                         .refresh_cache(last_seen_uid, &mailbox)
                         .and_then(|_| self.push_maildir_changes())
-                        .and_then(|_| self.get_new_messages(last_seen_uid + 1))
-                        .and_then(|_| self.session.idle());
+                        .and_then(|_| self.get_new_messages(last_seen_uid + 1));
 
                     if let Err(e) = res {
                         eprintln!("Error syncing: {}", e);
                         break;
                     };
 
-                    // FIXME: How to kill an idle() when this changes?
-                    if shutdown.load(Ordering::Relaxed) {
-                        break;
+                    match self.idle() {
+                        Ok(handle) => self.idlethread = Some(handle),
+                        Err(why) => {
+                            eprintln!("Error in IDLE: {}", why);
+                            break;
+                        }
+                    }
+
+                    match self.receiver.recv() {
+                        Ok(SyncMessage::Exit) => break,
+                        Ok(SyncMessage::ImapChanged) => {
+                            println!("IDLE thread exited");
+                            if self.idlethread.is_some() {
+                                self.idlethread.take().unwrap().join().ok();
+                            }
+                        },
+                        Ok(m) => {
+                            eprintln!("Unexpected message in SyncDir: {:?}", m);
+                            break;
+                        }
+                        Err(why) => {
+                            eprintln!("Error in recv(): {}", why);
+                            break;
+                        }
                     }
                 }
                 Ok(())

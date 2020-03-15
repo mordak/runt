@@ -12,8 +12,6 @@ extern crate toml;
 #[macro_use]
 extern crate serde_derive;
 
-use std::thread::spawn;
-
 mod cache;
 mod config;
 mod imapw;
@@ -23,8 +21,9 @@ use config::Config;
 use imapw::Session;
 use libc::SIGINT;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use syncdir::SyncDir;
+use syncdir::{SyncDir, SyncMessage};
+use std::thread::{spawn, sleep};
+use std::time;
 
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
@@ -33,12 +32,13 @@ fn main() {
     let config = baseconfig.clone();
     let mut imap_session = Session::new(&config).unwrap();
 
-    let shutdown = Arc::new(&SHUTDOWN);
     unsafe {
         libc::signal(SIGINT, handle_sigint as usize);
     }
 
     let mut threads = vec![];
+    let mut notifications = vec![];
+
     match imap_session.list(None, Some("*")) {
         Ok(listing) => {
             for mailbox in listing.iter() {
@@ -50,7 +50,7 @@ fn main() {
                     mailbox.name()
                 );
                 */
-                if mailbox.name() == "INBOX"
+                if mailbox.name() == "admin"
                     && !mailbox
                         .attributes()
                         .contains(&imap::types::NameAttribute::NoSelect)
@@ -59,8 +59,8 @@ fn main() {
                     match SyncDir::new(&baseconfig, mailbox.name().to_string()) {
                         Err(e) => panic!("Sync failed: {}", e),
                         Ok(mut sd) => {
-                            let stop = shutdown.clone();
-                            threads.push(spawn(move || sd.sync(stop)));
+                            notifications.push(sd.sender.clone());
+                            threads.push(spawn(move || sd.sync()));
                         }
                     }
                 }
@@ -68,6 +68,17 @@ fn main() {
         }
         Err(e) => println!("Error getting listing: {}", e),
     };
+
+    // spin off the thread to wait for Ctrl-C
+    threads.push(spawn(move || {
+        while !SHUTDOWN.load(Ordering::Relaxed) {
+            sleep(time::Duration::from_millis(1000));
+        }
+        for s in notifications {
+            s.send(SyncMessage::Exit).ok();
+        }
+    }));
+
     for t in threads {
         t.join().unwrap();
     }
