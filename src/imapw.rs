@@ -1,14 +1,55 @@
 use config::Config;
-use imap::types::{Fetch, Mailbox, Name, ZeroCopy};
+use imap::types::{Uid, Fetch, Flag, Mailbox, Name, ZeroCopy};
 use imap::Client;
 use imap::Session as SubSession;
 use imap_proto::types::Capability;
 use native_tls::TlsConnector;
 use native_tls::TlsStream;
+use std::convert::From;
 use std::net::TcpStream;
 use std::ops::Deref;
 use std::time::Duration;
 use std::vec::Vec;
+
+pub enum FetchResult<'a> {
+    Uid(UidResult<'a>),
+//    ModSeq(ModResult),
+    Other(&'a Fetch),
+}
+
+#[derive(Debug)]
+pub struct UidResult<'a> {
+    fetch: &'a Fetch,
+}
+
+impl<'a> UidResult<'a> {
+    pub fn uid(&self) -> Uid {
+        self.fetch.uid.unwrap()
+    }
+    pub fn size(&self) -> u32 {
+        self.fetch.size.unwrap()
+    }
+    pub fn internal_date_millis(&self) -> i64 {
+        self.fetch.internal_date().unwrap().timestamp_millis()
+    }
+    pub fn flags(&self) -> &[Flag] {
+        self.fetch.flags()
+    }
+}
+
+impl<'a> From<&'a Fetch> for FetchResult<'a> {
+    fn from(fetch: &'a Fetch) -> FetchResult<'a> {
+        if fetch.uid.is_some() &&
+           fetch.size.is_some() &&
+           fetch.internal_date().is_some() {
+               FetchResult::Uid(UidResult { fetch })
+           }
+        // else if ModSeq ...
+        else {
+            FetchResult::Other(fetch)
+        }
+    }
+}
 
 pub struct Session {
     session: SubSession<TlsStream<TcpStream>>,
@@ -94,7 +135,7 @@ impl Session {
         };
 
         self.session
-            .uid_fetch(range, "(UID FLAGS INTERNALDATE RFC822.SIZE)")
+            .uid_fetch(range, "(UID RFC822.SIZE INTERNALDATE FLAGS)")
             .map_err(|e| format!("{}", e))
     }
 

@@ -1,9 +1,10 @@
-use imap::types::{Fetch, Flag, Uid};
+use imap::types::{Flag, Uid};
 
 use cache::syncflags::FlagValue;
 use cache::syncflags::SyncFlags;
+use imapw::UidResult;
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct MessageMeta {
     id: String,
     size: u32,
@@ -45,14 +46,11 @@ impl MessageMeta {
         }
     }
 
-    pub fn update(&mut self, fetch: &Fetch) {
-        self.size = fetch.size.expect("No SIZE in FETCH response");
-        self.uid = fetch.uid.expect("No UID in FETCH response");
-        self.internal_date_millis = fetch
-            .internal_date()
-            .expect("No internal_date in FETCH response")
-            .timestamp_millis();
-        self.flags = SyncFlags::from(fetch.flags());
+    pub fn update(&mut self, uidres: &UidResult) {
+        self.uid = uidres.uid();
+        self.size = uidres.size();
+        self.internal_date_millis = uidres.internal_date_millis();
+        self.flags = SyncFlags::from(uidres.flags());
     }
 
     pub fn flags_equal(&self, flags: &[Flag]) -> bool {
@@ -60,28 +58,20 @@ impl MessageMeta {
         diff.add.empty() && diff.sub.empty()
     }
 
-    pub fn is_equal(&self, fetch: &Fetch) -> bool {
-        self.size == fetch.size.expect("No SIZE in FETCH response")
-            && self.uid == fetch.uid.expect("No UID in FETCH response")
-            && self.internal_date_millis
-                == fetch
-                    .internal_date()
-                    .expect("No INTERNALDATE in FETCH response")
-                    .timestamp_millis()
-            && self.flags_equal(fetch.flags())
+    pub fn is_equal(&self, uidres: &UidResult) -> bool {
+        self.uid == uidres.uid() &&
+            self.size == uidres.size() &&
+            self.internal_date_millis == uidres.internal_date_millis() &&
+            self.flags_equal(uidres.flags())
     }
 
-    pub fn needs_refetch(&self, fetch: &Fetch) -> bool {
-        self.size != fetch.size.expect("No size in FETCH response")
-            || self.internal_date_millis
-                != fetch
-                    .internal_date()
-                    .expect("No INTERNALDATE in FETCH response")
-                    .timestamp_millis()
+    pub fn needs_refetch(&self, uidres: &UidResult) -> bool {
+        self.size != uidres.size() ||
+            self.internal_date_millis != uidres.internal_date_millis()
     }
 
-    pub fn needs_move_from_new_to_cur(&self, fetch: &Fetch) -> bool {
-        !self.flags.contains(FlagValue::Seen) && fetch.flags().contains(&Flag::Seen)
+    pub fn needs_move_from_new_to_cur(&self, uidres: &UidResult) -> bool {
+        !self.flags.contains(FlagValue::Seen) && uidres.flags().contains(&Flag::Seen)
     }
 
     pub fn uid(&self) -> u32 {

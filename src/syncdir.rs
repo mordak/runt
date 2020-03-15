@@ -86,23 +86,24 @@ impl SyncDir {
         })
     }
 
-    fn update_cache_for_uid(&mut self, meta: &MessageMeta, fetch: &Fetch) -> Result<(), String> {
+    fn update_cache_for_uid(&mut self, meta: &MessageMeta, uidres: &UidResult) -> Result<(), String> {
         // Check if anything has changed
-        if meta.is_equal(fetch) {
+        if meta.is_equal(uidres) {
             return Ok(());
         }
 
-        if meta.needs_refetch(fetch) {
+        if meta.needs_refetch(uidres) {
             // Pull down a whole new copy of the message.
             self.delete_message(meta.uid())?;
             self.cache_message_for_uid(meta.uid())
         } else {
-            println!("Updating UID {}", fetch.uid.expect("No UID"));
-            self.cache.update(fetch).and_then(|newmeta| {
-                if meta.needs_move_from_new_to_cur(fetch) {
+            println!("Updating UID {}", uidres.uid());
+            self.cache.update(uidres).and_then(|newmeta| {
+                if meta.needs_move_from_new_to_cur(uidres) &&
+                   self.maildir.message_is_in_new(meta.id())? {
                     println!("Moving {} {} from new to cur", meta.uid(), meta.id());
-                    self.maildir
-                        .move_message_to_cur(meta.id(), &newmeta.flags())
+                    dbg!(self.maildir
+                        .move_message_to_cur(meta.id(), &newmeta.flags()))
                 } else {
                     self.maildir
                         .set_flags_for_message(newmeta.id(), &newmeta.flags())
@@ -114,15 +115,21 @@ impl SyncDir {
     fn cache_uids(&mut self, zc_vec_fetch: &ZeroCopy<Vec<Fetch>>) -> Result<(), String> {
         let mut err = false;
         for fetch in zc_vec_fetch.deref() {
-            let uid = fetch.uid.expect("No UID in FETCH response");
-            let res = if let Ok(meta) = self.cache.get_uid(uid) {
-                self.update_cache_for_uid(&meta, fetch)
-            } else {
-                self.cache_message_for_uid(uid)
-            };
-            if let Err(e) = res {
-                eprintln!("Cache UID {} failed: {}", uid, e);
-                err = true;
+            match FetchResult::from(fetch) {
+                FetchResult::Uid(uidres) => {
+                    let uid = uidres.uid();
+                    let res = if let Ok(meta) = self.cache.get_uid(uid) {
+                        self.update_cache_for_uid(&meta, &uidres)
+                    } else {
+                        self.cache_message_for_uid(uid)
+                    };
+                    if let Err(e) = res {
+                        eprintln!("Cache UID {} failed: {}", uid, e);
+                        err = true;
+                    }
+
+                }
+                FetchResult::Other(f) => println!("Got Other: {:?}", f),
             }
         }
         if err {
@@ -133,22 +140,33 @@ impl SyncDir {
     }
 
     fn delete_message(&self, uid: u32) -> Result<(), String> {
-        self.cache
+        println!("Deleting: {}", uid);
+        dbg!(self.cache
             .get_uid(uid)
             .and_then(|meta| self.maildir.delete_message(meta.id()))
-            .and_then(|_| self.cache.delete_uid(uid))
+            .and_then(|_| self.cache.delete_uid(uid)))
     }
 
     fn remove_absent_uids(&mut self, zc_vec_fetch: &ZeroCopy<Vec<Fetch>>) -> Result<(), String> {
         let mut err = false;
         self.cache.get_known_uids().and_then(|mut cached_uids| {
+            // Remove all the fetched uids from the cached values
+            // leaving only uids that are in the cache but not on
+            // the server anymore.
             for fetch in zc_vec_fetch.deref() {
-                let uid = fetch.uid.expect("No UID in FETCH");
-                if !cached_uids.remove(&uid) {
-                    eprintln!("UID {} exists on server but not in cache", uid);
-                    err = true;
+                match FetchResult::from(fetch) {
+                    FetchResult::Uid(uidres) => {
+                        let uid = uidres.uid();
+                        if !cached_uids.remove(&uid) {
+                            eprintln!("UID {} exists on server but not in cache", uid);
+                            err = true;
+                        }
+                    }
+                    FetchResult::Other(f) => println!("Got Other: {:?}", f),
                 }
             }
+
+            // Remove uids from cache that have been removed on the server
             for uid in cached_uids {
                 println!("UID {} is gone on server", uid);
                 if let Err(e) = self.delete_message(uid) {
@@ -156,6 +174,7 @@ impl SyncDir {
                     err = true;
                 }
             }
+
             if err {
                 Err("Error removing absent UIDs".to_string())
             } else {

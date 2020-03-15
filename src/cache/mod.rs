@@ -8,6 +8,7 @@ use config::Config;
 use imap::types::{Fetch, Flag, Mailbox};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use imapw::UidResult;
 
 use self::db::Db;
 pub use self::messagemeta::MessageMeta;
@@ -137,11 +138,12 @@ impl Cache {
         })
     }
 
-    pub fn update(&mut self, fetch: &Fetch) -> Result<MessageMeta, String> {
-        let uid = fetch.uid.expect("No UID in FETCH response");
+    pub fn update(&mut self, uidres: &UidResult) -> Result<MessageMeta, String> {
+        let uid = uidres.uid();
         self.get_uid(uid).and_then(|mut meta| {
-            if !meta.is_equal(fetch) {
-                meta.update(fetch);
+            println!("cache::update() {:?} == {:?}", meta, uidres);
+            if !meta.is_equal(uidres) {
+                meta.update(uidres);
                 self.db.update(&meta).map(|_| meta)
             } else {
                 Ok(meta)

@@ -98,4 +98,14 @@ impl Maildir {
         }
         Ok(v)
     }
+
+    pub fn message_is_in_new(&self, id: &str) -> Result<bool, String> {
+        for mailentry_res in self.maildir.list_new() {
+            let mailentry = mailentry_res.map_err(|e| e.to_string())?;
+            if mailentry.id() == id {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
 }

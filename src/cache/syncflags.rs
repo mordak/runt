@@ -2,7 +2,7 @@ use imap::types::Flag;
 use serde::de::{self, Deserialize, Deserializer, Visitor};
 use serde::ser::{Serialize, Serializer};
 
-#[derive(Serialize, Deserialize, PartialEq, Clone, Copy)]
+#[derive(Serialize, Deserialize, PartialEq, Clone, Copy, Debug)]
 pub enum FlagValue {
     NoFlag = 0,
     Draft = 0x44,
@@ -12,6 +12,7 @@ pub enum FlagValue {
     Trashed = 0x54,
 }
 
+#[derive(Debug)]
 pub struct SyncFlags {
     maildir: [FlagValue; 5],
 }
