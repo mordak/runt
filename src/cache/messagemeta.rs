@@ -59,15 +59,14 @@ impl MessageMeta {
     }
 
     pub fn is_equal(&self, uidres: &UidResult) -> bool {
-        self.uid == uidres.uid() &&
-            self.size == uidres.size() &&
-            self.internal_date_millis == uidres.internal_date_millis() &&
-            self.flags_equal(uidres.flags())
+        self.uid == uidres.uid()
+            && self.size == uidres.size()
+            && self.internal_date_millis == uidres.internal_date_millis()
+            && self.flags_equal(uidres.flags())
     }
 
     pub fn needs_refetch(&self, uidres: &UidResult) -> bool {
-        self.size != uidres.size() ||
-            self.internal_date_millis != uidres.internal_date_millis()
+        self.size != uidres.size() || self.internal_date_millis != uidres.internal_date_millis()
     }
 
     pub fn needs_move_from_new_to_cur(&self, uidres: &UidResult) -> bool {

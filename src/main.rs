@@ -21,9 +21,9 @@ use config::Config;
 use imapw::Session;
 use libc::SIGINT;
 use std::sync::atomic::{AtomicBool, Ordering};
-use syncdir::{SyncDir, SyncMessage};
-use std::thread::{spawn, sleep};
+use std::thread::{sleep, spawn};
 use std::time;
+use syncdir::{SyncDir, SyncMessage};
 
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 

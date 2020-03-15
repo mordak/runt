@@ -6,9 +6,9 @@ mod syncflags;
 use self::syncflags::SyncFlags;
 use config::Config;
 use imap::types::{Fetch, Flag, Mailbox};
+use imapw::UidResult;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use imapw::UidResult;
 
 use self::db::Db;
 pub use self::messagemeta::MessageMeta;

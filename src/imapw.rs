@@ -1,5 +1,5 @@
 use config::Config;
-use imap::types::{Uid, Fetch, Flag, Mailbox, Name, ZeroCopy};
+use imap::types::{Fetch, Flag, Mailbox, Name, Uid, ZeroCopy};
 use imap::Client;
 use imap::Session as SubSession;
 use imap_proto::types::Capability;
@@ -13,7 +13,7 @@ use std::vec::Vec;
 
 pub enum FetchResult<'a> {
     Uid(UidResult<'a>),
-//    ModSeq(ModResult),
+    //    ModSeq(ModResult),
     Other(&'a Fetch),
 }
 
@@ -39,11 +39,9 @@ impl<'a> UidResult<'a> {
 
 impl<'a> From<&'a Fetch> for FetchResult<'a> {
     fn from(fetch: &'a Fetch) -> FetchResult<'a> {
-        if fetch.uid.is_some() &&
-           fetch.size.is_some() &&
-           fetch.internal_date().is_some() {
-               FetchResult::Uid(UidResult { fetch })
-           }
+        if fetch.uid.is_some() && fetch.size.is_some() && fetch.internal_date().is_some() {
+            FetchResult::Uid(UidResult { fetch })
+        }
         // else if ModSeq ...
         else {
             FetchResult::Other(fetch)

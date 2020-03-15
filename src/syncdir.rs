@@ -3,12 +3,12 @@ use cache::Cache;
 use cache::MessageMeta;
 use config::Config;
 use imap::types::{Fetch, Mailbox, Uid, ZeroCopy};
-use imapw::{FetchResult, UidResult, Session};
+use imapw::{FetchResult, Session, UidResult};
 use maildirw::Maildir;
 use std::ops::Deref;
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::thread::{spawn, JoinHandle};
 use std::vec::Vec;
-use std::sync::mpsc::{channel, Sender, Receiver};
-use std::thread::{JoinHandle, spawn};
 
 #[derive(Debug)]
 pub enum SyncMessage {
@@ -86,7 +86,11 @@ impl SyncDir {
         })
     }
 
-    fn update_cache_for_uid(&mut self, meta: &MessageMeta, uidres: &UidResult) -> Result<(), String> {
+    fn update_cache_for_uid(
+        &mut self,
+        meta: &MessageMeta,
+        uidres: &UidResult,
+    ) -> Result<(), String> {
         // Check if anything has changed
         if meta.is_equal(uidres) {
             return Ok(());
@@ -99,10 +103,12 @@ impl SyncDir {
         } else {
             println!("Updating UID {}", uidres.uid());
             self.cache.update(uidres).and_then(|newmeta| {
-                if meta.needs_move_from_new_to_cur(uidres) &&
-                   self.maildir.message_is_in_new(meta.id())? {
+                if meta.needs_move_from_new_to_cur(uidres)
+                    && self.maildir.message_is_in_new(meta.id())?
+                {
                     println!("Moving {} {} from new to cur", meta.uid(), meta.id());
-                    dbg!(self.maildir
+                    dbg!(self
+                        .maildir
                         .move_message_to_cur(meta.id(), &newmeta.flags()))
                 } else {
                     self.maildir
@@ -127,7 +133,6 @@ impl SyncDir {
                         eprintln!("Cache UID {} failed: {}", uid, e);
                         err = true;
                     }
-
                 }
                 FetchResult::Other(f) => println!("Got Other: {:?}", f),
             }
@@ -141,7 +146,8 @@ impl SyncDir {
 
     fn delete_message(&self, uid: u32) -> Result<(), String> {
         println!("Deleting: {}", uid);
-        dbg!(self.cache
+        dbg!(self
+            .cache
             .get_uid(uid)
             .and_then(|meta| self.maildir.delete_message(meta.id()))
             .and_then(|_| self.cache.delete_uid(uid)))
@@ -258,7 +264,7 @@ impl SyncDir {
                             if self.idlethread.is_some() {
                                 self.idlethread.take().unwrap().join().ok();
                             }
-                        },
+                        }
                         Ok(m) => {
                             eprintln!("Unexpected message in SyncDir: {:?}", m);
                             break;
