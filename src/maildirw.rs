@@ -81,20 +81,27 @@ impl Maildir {
     pub fn get_updates(
         &self,
         cache: &mut HashMap<String, MessageMeta>,
-    ) -> Result<Vec<String>, String> {
-        let mut v = Vec::new();
+    ) -> Result<(Vec<String>, Vec<String>), String> {
+        let mut new = Vec::new();
+        let mut changed = Vec::new();
         for mailentry_res in self.maildir.list_new().chain(self.maildir.list_cur()) {
             let mailentry = mailentry_res.map_err(|e| e.to_string())?;
 
             if let Some(cache_meta) = cache.get(mailentry.id()) {
-                if meta_equal(&mailentry, &cache_meta)? && cache.remove(mailentry.id()).is_none() {
+                // If the meta is different then add it to the changed list
+                if !meta_equal(&mailentry, &cache_meta)? {
+                    changed.push(mailentry.id().to_string());
+                }
+
+                // Remove the entry from the cachemap since it is still on disk.
+                if cache.remove(mailentry.id()).is_none() {
                     return Err(format!("Cache id mismatch: {}", mailentry.id()));
                 }
             } else {
-                v.push(mailentry.id().to_string());
+                new.push(mailentry.id().to_string());
             }
         }
-        Ok(v)
+        Ok((new, changed))
     }
 
     pub fn message_is_in_new(&self, id: &str) -> Result<bool, String> {

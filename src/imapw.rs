@@ -1,7 +1,7 @@
 use config::Config;
 use imap::types::{Fetch, Flag, Mailbox, Name, Uid, ZeroCopy};
 use imap::Client;
-use imap::Session as SubSession;
+use imap::Session;
 use imap_proto::types::Capability;
 use native_tls::TlsConnector;
 use native_tls::TlsStream;
@@ -48,13 +48,13 @@ impl<'a> From<&'a Fetch> for FetchResult<'a> {
     }
 }
 
-pub struct Session {
-    session: SubSession<TlsStream<TcpStream>>,
+pub struct Imap {
+    session: Session<TlsStream<TcpStream>>,
 }
 
-impl Session {
-    pub fn new(config: &Config) -> Result<Session, String> {
-        let client = Session::connect(config)?;
+impl Imap {
+    pub fn new(config: &Config) -> Result<Imap, String> {
+        let client = Imap::connect(config)?;
         let mut session = client
             .login(config.username.as_str(), config.password.as_ref().unwrap())
             .map_err(|e| format!("Login failed: {:?}", e))?;
@@ -70,7 +70,7 @@ impl Session {
             return Err("Missing CAPABILITY support".to_string());
         }
 
-        Ok(Session { session })
+        Ok(Imap { session })
     }
 
     #[allow(dead_code)]
@@ -152,5 +152,15 @@ impl Session {
         self.session
             .logout()
             .map_err(|e| format!("LOGOUT failed: {}", e))
+    }
+
+    pub fn delete_uid(&mut self, uid: u32) -> Result<(), String> {
+        self.session
+            .uid_store(format!("{}", uid), "+FLAGS (\\Deleted)")
+            .map_err(|e| format!("STORE UID {} +Deleted failed: {}", uid, e))?;
+        self.session
+            .uid_expunge(format!("{}", uid))
+            .map_err(|e| format!("EXPUNGE UID {} failed: {}", uid, e))?;
+        Ok(())
     }
 }

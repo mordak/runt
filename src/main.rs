@@ -18,7 +18,7 @@ mod imapw;
 mod maildirw;
 mod syncdir;
 use config::Config;
-use imapw::Session;
+use imapw::Imap;
 use libc::SIGINT;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{sleep, spawn};
@@ -30,7 +30,7 @@ static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 fn main() {
     let baseconfig = Config::new();
     let config = baseconfig.clone();
-    let mut imap_session = Session::new(&config).unwrap();
+    let mut imap = Imap::new(&config).unwrap();
 
     unsafe {
         libc::signal(SIGINT, handle_sigint as usize);
@@ -39,7 +39,7 @@ fn main() {
     let mut threads = vec![];
     let mut notifications = vec![];
 
-    match imap_session.list(None, Some("*")) {
+    match imap.list(None, Some("*")) {
         Ok(listing) => {
             for mailbox in listing.iter() {
                 /*
@@ -83,7 +83,7 @@ fn main() {
         t.join().unwrap();
     }
 
-    imap_session.logout().unwrap();
+    imap.logout().unwrap();
 }
 
 #[allow(dead_code)]

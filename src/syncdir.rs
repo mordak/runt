@@ -3,7 +3,7 @@ use cache::Cache;
 use cache::MessageMeta;
 use config::Config;
 use imap::types::{Fetch, Mailbox, Uid, ZeroCopy};
-use imapw::{FetchResult, Session, UidResult};
+use imapw::{FetchResult, Imap, UidResult};
 use maildirw::Maildir;
 use std::ops::Deref;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -22,7 +22,7 @@ pub struct SyncDir {
     pub mailbox: String,
     pub sender: Sender<SyncMessage>,
     receiver: Receiver<SyncMessage>,
-    session: Session,
+    imap: Imap,
     cache: Cache,
     maildir: Maildir,
     idlethread: Option<JoinHandle<()>>,
@@ -31,7 +31,7 @@ pub struct SyncDir {
 impl SyncDir {
     pub fn new(config: &Config, mailbox: String) -> Result<SyncDir, String> {
         let myconfig = config.clone();
-        let session = Session::new(&myconfig)?;
+        let imap = Imap::new(&myconfig)?;
         let cache = Cache::new(&myconfig.account, &mailbox).unwrap();
         let maildir = Maildir::new(&myconfig.maildir, &myconfig.account, &mailbox)?;
         let (sender, receiver) = channel();
@@ -40,7 +40,7 @@ impl SyncDir {
             mailbox,
             sender,
             receiver,
-            session,
+            imap,
             cache,
             maildir,
             idlethread: None,
@@ -48,16 +48,16 @@ impl SyncDir {
     }
 
     fn idle(&self) -> Result<JoinHandle<()>, String> {
-        let mut session = Session::new(&self.config)?;
-        session.select_mailbox(&self.mailbox.as_str())?;
+        let mut imap = Imap::new(&self.config)?;
+        imap.select_mailbox(&self.mailbox.as_str())?;
         let sender = self.sender.clone();
         let handle = spawn(move || {
             println!("IDLE");
-            if let Err(why) = session.idle() {
-                eprintln!("Error in session IDLE: {}", why);
+            if let Err(why) = imap.idle() {
+                eprintln!("Error in imap IDLE: {}", why);
             }
             println!("IDLE Done");
-            session.logout().ok();
+            imap.logout().ok();
             sender.send(SyncMessage::ImapChanged).ok();
         });
         Ok(handle)
@@ -75,7 +75,7 @@ impl SyncDir {
     }
 
     fn cache_message_for_uid(&mut self, uid: Uid) -> Result<(), String> {
-        self.session.fetch_uid(uid).and_then(|zc_vec_fetch| {
+        self.imap.fetch_uid(uid).and_then(|zc_vec_fetch| {
             for fetch in zc_vec_fetch.deref() {
                 eprintln!("Fetching UID {} FLAGS {:?}", uid, fetch.flags());
                 if let Err(e) = self.save_message_in_maildir(fetch) {
@@ -196,7 +196,7 @@ impl SyncDir {
         };
 
         println!("Fetching UIDs 1:{:?}", end);
-        self.session.fetch_uids(1, end).and_then(|zc_vec_fetch| {
+        self.imap.fetch_uids(1, end).and_then(|zc_vec_fetch| {
             if !self.cache.is_valid(mailbox) {
                 // We have a new state, so delete the existing one
                 self.cache.delete_maildir_state()
@@ -210,32 +210,62 @@ impl SyncDir {
     }
 
     fn get_new_messages(&mut self, uid: u32) -> Result<(), String> {
-        self.session
+        self.imap
             .fetch_uids(uid, None)
             .and_then(|zc_vec_fetch| self.cache_uids(&zc_vec_fetch))
     }
 
     fn push_maildir_changes(&mut self) -> Result<(), String> {
         let mut ids = self.cache.get_known_ids()?;
-        let _new = self.maildir.get_updates(&mut ids)?;
+        let (new, changed) = self.maildir.get_updates(&mut ids)?;
 
-        // TODO: For each remaining ids, update the server with the
-        //       new values. For each new, store the message on the
-        //       server and create an entry for the new message.
-        //       Is there a sane way to round-trip the messages
-        //       through the server to get them normal names, etc?
+        // ids now contains maildir entries that are in the cache
+        // but not on the file system anymore. They need to be deleted
+        // from the server.
+        for meta in ids.values() {
+            // delete from cache
+            self.cache.delete_uid(meta.uid())?;
+            // delete from server
+            self.imap.delete_uid(meta.uid())?;
+            // the change will come back to us on the IDLE
+            // thread, but we'll just ignore it.
+        }
+
+        // changed contains maildir entries that are different on
+        // disk than in the cache. These need to be synchronized
+        // to the server.
+        for id in changed {
+            // fetch server info, cache info, filesystem info
+            // compare server with cache:
+            //  - if the server does not agree with the cache,
+            //    sync the server info down and update the cache
+            //    then update the filesystem. done.
+            //  compare cache with filesystem
+            //  - if the filesystem does not agree with the cache,
+            //    sync the filsystem to the cache and then update
+            //    the server. done.
+        }
+
+        // new contains maildir entries that are on the file system
+        // but not in the cache. These need to be sent to the server.
+        for id in new {
+            // send each mail to the server. It will come back on
+            // the imap idle thread. Once we get the mail back, delete
+            // the original off the filesystem and the imap version is
+            // the new correct version.
+        }
 
         self.cache.update_maildir_state()
     }
 
     pub fn sync(&mut self) {
-        self.session.debug(true);
-        self.session.enable_qresync().unwrap();
-        self.session.debug(true);
-        self.session
+        self.imap.debug(true);
+        //self.imap.enable_qresync().unwrap();
+        self.imap.debug(true);
+        self.imap
             .select_mailbox(&self.mailbox.as_str())
             .and_then(|mailbox| {
-                // TODO: HIGHESTMODSEQ support
+                // TODO: HIGHESTMODSEQ support, will trigger VANISHED responses
                 loop {
                     let last_seen_uid = self.cache.get_last_seen_uid();
                     dbg!(last_seen_uid);
@@ -279,6 +309,6 @@ impl SyncDir {
             })
             .unwrap();
 
-        self.session.logout().unwrap();
+        self.imap.logout().unwrap();
     }
 }
