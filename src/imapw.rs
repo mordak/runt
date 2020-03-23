@@ -48,8 +48,22 @@ impl<'a> From<&'a Fetch> for FetchResult<'a> {
     }
 }
 
+fn flag2string(flag: &Flag) -> Option<String> {
+    match flag {
+        Flag::Seen => Some("\\Seen".to_string()),
+        Flag::Answered => Some("\\Answered".to_string()),
+        Flag::Flagged => Some("\\Flagged".to_string()),
+        Flag::Deleted => Some("\\Deleted".to_string()),
+        Flag::Draft => Some("\\Draft".to_string()),
+        Flag::Recent => Some("\\Recent".to_string()),
+        Flag::Custom(s) => Some(s.to_string()),
+        _ => None,
+    }
+}
+
 pub struct Imap {
     session: Session<TlsStream<TcpStream>>,
+    mailbox: Option<String>,
 }
 
 impl Imap {
@@ -70,7 +84,10 @@ impl Imap {
             return Err("Missing CAPABILITY support".to_string());
         }
 
-        Ok(Imap { session })
+        Ok(Imap {
+            session,
+            mailbox: None,
+        })
     }
 
     #[allow(dead_code)]
@@ -120,6 +137,12 @@ impl Imap {
             .map_err(|e| format!("UID FETCH failed: {}", e))
     }
 
+    pub fn fetch_uid_meta(&mut self, uid: u32) -> Result<ZeroCopy<Vec<Fetch>>, String> {
+        self.session
+            .uid_fetch(format!("{}", uid), "(UID RFC822.SIZE INTERNALDATE FLAGS)")
+            .map_err(|e| format!("UID FETCH failed: {}", e))
+    }
+
     pub fn fetch_uids(
         &mut self,
         first: u32,
@@ -133,7 +156,7 @@ impl Imap {
 
         self.session
             .uid_fetch(range, "(UID RFC822.SIZE INTERNALDATE FLAGS)")
-            .map_err(|e| format!("{}", e))
+            .map_err(|e| format!("UID FETCH failed: {}", e))
     }
 
     pub fn enable_qresync(&mut self) -> Result<(), String> {
@@ -146,6 +169,10 @@ impl Imap {
         self.session
             .select(mailbox)
             .map_err(|e| format!("SELECT {} failed: {}", mailbox, e))
+            .and_then(|mbox| {
+                self.mailbox = Some(mailbox.to_string());
+                Ok(mbox)
+            })
     }
 
     pub fn logout(&mut self) -> Result<(), String> {
@@ -162,5 +189,68 @@ impl Imap {
             .uid_expunge(format!("{}", uid))
             .map_err(|e| format!("EXPUNGE UID {} failed: {}", uid, e))?;
         Ok(())
+    }
+
+    pub fn append(&mut self, body: &[u8], flags: Option<&[String]>) -> Result<(), String> {
+        if self.mailbox.is_none() {
+            return Err("No mailbox selected".to_string());
+        }
+        let flags_str = if let Some(flags) = flags {
+            format!("({})", flags.join(" "))
+        } else {
+            "()".to_string()
+        };
+
+        self.session
+            .append_with_flags(self.mailbox.as_ref().unwrap(), body, flags_str)
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn replace_uid(&mut self, uid: u32, body: &[u8]) -> Result<(), String> {
+        // Fetch the current flags so we can copy them to the new message.
+        let zc_vec_fetch = self.fetch_uid_meta(uid)?;
+
+        let mut uidres: Option<UidResult> = None;
+        for fetch in zc_vec_fetch.deref() {
+            if let FetchResult::Uid(res) = FetchResult::from(fetch) {
+                if res.uid() == uid {
+                    uidres.replace(res);
+                    break;
+                }
+            }
+        }
+
+        if uidres.is_none() {
+            return Err(format!("UID {} not found on server", uid));
+        }
+
+        // Map flags into strings. Recent is not allowed in APPEND
+        let flags: Vec<String> = uidres
+            .unwrap()
+            .flags()
+            .iter()
+            .filter(|e| **e != Flag::Recent)
+            .map(|flag| flag2string(flag))
+            .filter(|flag| flag.is_some())
+            .map(|flag| flag.unwrap())
+            .collect();
+
+        // Append first so if it fails we don't delete the original
+        self.append(body, Some(&flags))?;
+        self.delete_uid(uid)
+    }
+
+    pub fn add_flags_for_uid(&mut self, uid: u32, flags: &[String]) -> Result<(), String> {
+        self.session
+            .uid_store(format!("{}", uid), format!("+FLAGS ({})", flags.join(" ")))
+            .map_err(|e| format!("STORE UID {} +FLAGS failed: {}", uid, e))
+            .map(|_| ())
+    }
+
+    pub fn remove_flags_for_uid(&mut self, uid: u32, flags: &[String]) -> Result<(), String> {
+        self.session
+            .uid_store(format!("{}", uid), format!("-FLAGS ({})", flags.join(" ")))
+            .map_err(|e| format!("STORE UID {} -FLAGS failed: {}", uid, e))
+            .map(|_| ())
     }
 }

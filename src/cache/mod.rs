@@ -3,7 +3,7 @@ mod messagemeta;
 mod statefile;
 mod syncflags;
 
-use self::syncflags::SyncFlags;
+pub use self::syncflags::SyncFlags;
 use config::Config;
 use imap::types::{Fetch, Flag, Mailbox};
 use imapw::UidResult;
@@ -111,6 +111,10 @@ impl Cache {
         self.db.delete_uid(uid)
     }
 
+    pub fn get_id(&self, id: &str) -> Result<MessageMeta, String> {
+        self.db.get_id(id)
+    }
+
     // FIXME: Clean up the expect() in here to just return Err
     pub fn add(&mut self, id: &str, fetch: &Fetch) -> Result<MessageMeta, String> {
         let uid = fetch.uid.expect("No UID in FETCH response");
@@ -152,7 +156,7 @@ impl Cache {
     }
 
     pub fn delete_maildir_state(&self) -> Result<(), String> {
-        // TODO: Clear all State and start over
+        // FIXME: Clear all State and start over
         Ok(())
     }
 }

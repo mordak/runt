@@ -1,10 +1,12 @@
 use cache::maildir_flags_from_imap;
 use cache::Cache;
 use cache::MessageMeta;
+use cache::SyncFlags;
 use config::Config;
 use imap::types::{Fetch, Mailbox, Uid, ZeroCopy};
 use imapw::{FetchResult, Imap, UidResult};
 use maildirw::Maildir;
+use std::fs;
 use std::ops::Deref;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::{spawn, JoinHandle};
@@ -223,10 +225,10 @@ impl SyncDir {
         // but not on the file system anymore. They need to be deleted
         // from the server.
         for meta in ids.values() {
-            // delete from cache
-            self.cache.delete_uid(meta.uid())?;
             // delete from server
             self.imap.delete_uid(meta.uid())?;
+            // delete from cache
+            self.cache.delete_uid(meta.uid())?;
             // the change will come back to us on the IDLE
             // thread, but we'll just ignore it.
         }
@@ -235,26 +237,47 @@ impl SyncDir {
         // disk than in the cache. These need to be synchronized
         // to the server.
         for id in changed {
-            // fetch server info, cache info, filesystem info
-            // compare server with cache:
-            //  - if the server does not agree with the cache,
-            //    sync the server info down and update the cache
-            //    then update the filesystem. done.
-            //  compare cache with filesystem
-            //  - if the filesystem does not agree with the cache,
-            //    sync the filsystem to the cache and then update
-            //    the server. done.
+            let cache_v = self.cache.get_id(&id)?;
+            let mail_v = self.maildir.get_id(&id)?;
+
+            // If we need to update flags then send changes.
+            let cache_flags = SyncFlags::from(cache_v.flags().as_str());
+            let maildir_flags = SyncFlags::from(mail_v.flags());
+            let flags_diff = cache_flags.diff(maildir_flags);
+            if let Some(flags) = flags_diff.add.as_imap_flags() {
+                self.imap.add_flags_for_uid(cache_v.uid(), &flags)?;
+            }
+            if let Some(flags) = flags_diff.sub.as_imap_flags() {
+                self.imap.remove_flags_for_uid(cache_v.uid(), &flags)?;
+            }
+
+            // If we need to push a new body.
+            // FIXME: Can we use something better than size?
+            //        If we store the file mod date, we could
+            //        use that instead...
+            if cache_v.size() as u64 != mail_v.size() {
+                self.imap.replace_uid(
+                    cache_v.uid(),
+                    &fs::read(mail_v.path()).map_err(|e| e.to_string())?,
+                )?;
+                self.maildir.delete_message(&id)?;
+                self.cache.delete_uid(cache_v.uid())?;
+            }
         }
 
         // new contains maildir entries that are on the file system
         // but not in the cache. These need to be sent to the server.
         for id in new {
-            // send each mail to the server. It will come back on
-            // the imap idle thread. Once we get the mail back, delete
-            // the original off the filesystem and the imap version is
-            // the new correct version.
+            let mail_v = self.maildir.get_id(&id)?;
+            // Push to the server first, then delete the local copy
+            self.imap
+                .append(&fs::read(mail_v.path()).map_err(|e| e.to_string())?, None)?;
+            // These will come back to us on the idle loop,
+            // at which time they will get cache entries.
+            self.maildir.delete_message(&id)?;
         }
 
+        // FIXME: For UIDs that changed, refetch them immediately
         self.cache.update_maildir_state()
     }
 
@@ -265,7 +288,7 @@ impl SyncDir {
         self.imap
             .select_mailbox(&self.mailbox.as_str())
             .and_then(|mailbox| {
-                // TODO: HIGHESTMODSEQ support, will trigger VANISHED responses
+                // FIXME: HIGHESTMODSEQ support, will trigger VANISHED responses
                 loop {
                     let last_seen_uid = self.cache.get_last_seen_uid();
                     dbg!(last_seen_uid);
@@ -287,6 +310,7 @@ impl SyncDir {
                         }
                     }
 
+                    // FIXME: Spin off a kqueue watcher thread..
                     match self.receiver.recv() {
                         Ok(SyncMessage::Exit) => break,
                         Ok(SyncMessage::ImapChanged) => {

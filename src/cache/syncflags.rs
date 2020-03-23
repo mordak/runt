@@ -142,6 +142,25 @@ impl SyncFlags {
         }
         true
     }
+
+    pub fn as_imap_flags(&self) -> Option<Vec<String>> {
+        let mut res = Vec::<String>::with_capacity(self.maildir.len());
+        for flag in &self.maildir {
+            match *flag {
+                FlagValue::NoFlag => (),
+                FlagValue::Draft => res.push("\\Draft".to_string()),
+                FlagValue::Flagged => res.push("\\Flagged".to_string()),
+                FlagValue::Replied => res.push("\\Answered".to_string()),
+                FlagValue::Seen => res.push("\\Seen".to_string()),
+                FlagValue::Trashed => res.push("\\Deleted".to_string()),
+            }
+        }
+        if !res.is_empty() {
+            Some(res)
+        } else {
+            None
+        }
+    }
 }
 
 pub struct SyncFlagsDiff {

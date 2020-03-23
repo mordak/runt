@@ -3,20 +3,42 @@ use maildir::MailEntry;
 use maildir::Maildir as SubMaildir;
 use std::collections::HashMap;
 use std::path::PathBuf;
+//use std::time::SystemTime;
 
 /// A wrapper around a maildir implementation
 pub struct Maildir {
     maildir: SubMaildir,
 }
 
-/*
-pub struct MaildirEntry {
-    id: String,
+pub struct IdResult {
+    //id: String,
     flags: String,
-    size: String,
-    modified: i64,
+    size: u64,
+    //modified_millis: u128,
+    path: PathBuf,
 }
-*/
+
+impl IdResult {
+    /*
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+    */
+    pub fn flags(&self) -> &str {
+        &self.flags
+    }
+    pub fn size(&self) -> u64 {
+        self.size
+    }
+    /*
+    pub fn modified_millis(&self) -> u128 {
+        self.modified_millis
+    }
+    */
+    pub fn path(&self) -> &PathBuf {
+        &self.path
+    }
+}
 
 fn meta_equal(maildir_meta: &MailEntry, cache_meta: &MessageMeta) -> Result<bool, String> {
     if let Ok(fs_metadata) = maildir_meta.path().metadata() {
@@ -112,5 +134,31 @@ impl Maildir {
             }
         }
         Ok(false)
+    }
+
+    pub fn get_id(&self, id: &str) -> Result<IdResult, String> {
+        if let Some(entry) = self.maildir.find(id) {
+            let meta = entry.path().metadata().map_err(|e| e.to_string())?;
+
+            let size = meta.len();
+            /*
+            let modified_millis = meta
+                .modified()
+                .map_err(|e| e.to_string())?
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .map_err(|e| e.to_string())?
+                .as_millis();
+            */
+
+            Ok(IdResult {
+                //id: entry.id().to_string(),
+                flags: entry.flags().to_string(),
+                size,
+                //modified_millis,
+                path: entry.path().clone(),
+            })
+        } else {
+            Err(format!("Not found: {}", id))
+        }
     }
 }

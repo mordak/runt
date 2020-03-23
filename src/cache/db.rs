@@ -169,4 +169,26 @@ impl Db {
         })
         .map_err(|e| format!("query_row: {}", e))
     }
+
+    pub fn get_id(&self, id: &str) -> Result<MessageMeta, String> {
+        let conn = Connection::open(&self.dbpath).map_err(|e| format!("Open DB: {}", e))?;
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT uid, size, internal_date_millis, flags, id
+                      FROM v1 WHERE id = (?)",
+            )
+            .map_err(|e| format!("SELECT: {}", e))?;
+
+        stmt.query_row(params![id], |r| {
+            Ok(MessageMeta::from_fields(
+                r.get_unwrap(0),
+                r.get_unwrap(1),
+                r.get_unwrap(2),
+                r.get_unwrap(3),
+                r.get_unwrap(4),
+            ))
+        })
+        .map_err(|e| format!("query_row: {}", e))
+    }
 }
