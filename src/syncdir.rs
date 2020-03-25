@@ -6,6 +6,7 @@ use config::Config;
 use imap::types::{Fetch, Mailbox, Uid, ZeroCopy};
 use imapw::{FetchResult, Imap, UidResult};
 use maildirw::Maildir;
+use std::collections::HashSet;
 use std::fs;
 use std::ops::Deref;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -220,6 +221,7 @@ impl SyncDir {
     fn push_maildir_changes(&mut self) -> Result<(), String> {
         let mut ids = self.cache.get_known_ids()?;
         let (new, changed) = self.maildir.get_updates(&mut ids)?;
+        let mut refetch = HashSet::<u32>::new();
 
         // ids now contains maildir entries that are in the cache
         // but not on the file system anymore. They need to be deleted
@@ -246,9 +248,11 @@ impl SyncDir {
             let flags_diff = cache_flags.diff(maildir_flags);
             if let Some(flags) = flags_diff.add.as_imap_flags() {
                 self.imap.add_flags_for_uid(cache_v.uid(), &flags)?;
+                refetch.insert(cache_v.uid());
             }
             if let Some(flags) = flags_diff.sub.as_imap_flags() {
                 self.imap.remove_flags_for_uid(cache_v.uid(), &flags)?;
+                refetch.insert(cache_v.uid());
             }
 
             // If we need to push a new body.
@@ -262,6 +266,7 @@ impl SyncDir {
                 )?;
                 self.maildir.delete_message(&id)?;
                 self.cache.delete_uid(cache_v.uid())?;
+                refetch.remove(&cache_v.uid());
             }
         }
 
@@ -277,7 +282,12 @@ impl SyncDir {
             self.maildir.delete_message(&id)?;
         }
 
-        // FIXME: For UIDs that changed, refetch them immediately
+        for uid in refetch {
+            self.imap
+                .fetch_uid_meta(uid)
+                .and_then(|zc_vec_fetch| self.cache_uids(&zc_vec_fetch))?;
+        }
+
         self.cache.update_maildir_state()
     }
 
