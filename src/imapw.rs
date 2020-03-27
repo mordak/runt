@@ -123,7 +123,7 @@ impl Imap {
             .idle()
             .map_err(|e| format!("{}", e))
             .and_then(|mut i| {
-                i.set_keepalive(Duration::from_secs(5 * 60));
+                i.set_keepalive(Duration::from_secs(10 * 60));
                 i.wait_keepalive().map_err(|e| format!("{}", e))
             })
     }
