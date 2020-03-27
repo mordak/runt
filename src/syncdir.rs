@@ -6,11 +6,13 @@ use config::Config;
 use imap::types::{Fetch, Mailbox, Uid, ZeroCopy};
 use imapw::{FetchResult, Imap, UidResult};
 use maildirw::Maildir;
+use notify::{watcher, RecursiveMode, Watcher};
 use std::collections::HashSet;
 use std::fs;
 use std::ops::Deref;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::{spawn, JoinHandle};
+use std::time::Duration;
 use std::vec::Vec;
 
 #[derive(Debug)]
@@ -29,6 +31,7 @@ pub struct SyncDir {
     cache: Cache,
     maildir: Maildir,
     idlethread: Option<JoinHandle<()>>,
+    fsthread: Option<JoinHandle<()>>,
 }
 
 impl SyncDir {
@@ -47,6 +50,7 @@ impl SyncDir {
             cache,
             maildir,
             idlethread: None,
+            fsthread: None,
         })
     }
 
@@ -55,13 +59,36 @@ impl SyncDir {
         imap.select_mailbox(&self.mailbox.as_str())?;
         let sender = self.sender.clone();
         let handle = spawn(move || {
-            println!("IDLE");
             if let Err(why) = imap.idle() {
                 eprintln!("Error in imap IDLE: {}", why);
             }
-            println!("IDLE Done");
             imap.logout().ok();
             sender.send(SyncMessage::ImapChanged).ok();
+        });
+        Ok(handle)
+    }
+
+    fn fswait(&self) -> Result<JoinHandle<()>, String> {
+        let sender = self.sender.clone();
+        let path = self.maildir.path();
+        let handle = spawn(move || {
+            let (tx, rx) = channel();
+            let mut watcher = watcher(tx, Duration::from_secs(10)).unwrap();
+            watcher.watch(path, RecursiveMode::Recursive).unwrap();
+            loop {
+                match rx.recv() {
+                    Ok(event) => {
+                        match event {
+                            notify::DebouncedEvent::Write(path) if path.is_dir() => {
+                                // trigger on dir writes only, which cover everything else
+                                sender.send(SyncMessage::MaildirChanged).ok();
+                            }
+                            _ => (),
+                        }
+                    }
+                    Err(e) => eprintln!("Maildor watch error: {:?}", e),
+                }
+            }
         });
         Ok(handle)
     }
@@ -110,9 +137,8 @@ impl SyncDir {
                     && self.maildir.message_is_in_new(meta.id())?
                 {
                     println!("Moving {} {} from new to cur", meta.uid(), meta.id());
-                    dbg!(self
-                        .maildir
-                        .move_message_to_cur(meta.id(), &newmeta.flags()))
+                    self.maildir
+                        .move_message_to_cur(meta.id(), &newmeta.flags())
                 } else {
                     self.maildir
                         .set_flags_for_message(newmeta.id(), &newmeta.flags())
@@ -148,12 +174,10 @@ impl SyncDir {
     }
 
     fn delete_message(&self, uid: u32) -> Result<(), String> {
-        println!("Deleting: {}", uid);
-        dbg!(self
-            .cache
+        self.cache
             .get_uid(uid)
             .and_then(|meta| self.maildir.delete_message(meta.id()))
-            .and_then(|_| self.cache.delete_uid(uid)))
+            .and_then(|_| self.cache.delete_uid(uid))
     }
 
     fn remove_absent_uids(&mut self, zc_vec_fetch: &ZeroCopy<Vec<Fetch>>) -> Result<(), String> {
@@ -292,16 +316,15 @@ impl SyncDir {
     }
 
     pub fn sync(&mut self) {
-        self.imap.debug(true);
+        //self.imap.debug(true);
         //self.imap.enable_qresync().unwrap();
-        self.imap.debug(true);
+        //self.imap.debug(true);
         self.imap
             .select_mailbox(&self.mailbox.as_str())
             .and_then(|mailbox| {
                 // FIXME: HIGHESTMODSEQ support, will trigger VANISHED responses
                 loop {
                     let last_seen_uid = self.cache.get_last_seen_uid();
-                    dbg!(last_seen_uid);
                     let res = self
                         .refresh_cache(last_seen_uid, &mailbox)
                         .and_then(|_| self.push_maildir_changes())
@@ -312,26 +335,36 @@ impl SyncDir {
                         break;
                     };
 
-                    match self.idle() {
-                        Ok(handle) => self.idlethread = Some(handle),
-                        Err(why) => {
-                            eprintln!("Error in IDLE: {}", why);
-                            break;
+                    if self.idlethread.is_none() {
+                        match self.idle() {
+                            Ok(handle) => self.idlethread = Some(handle),
+                            Err(why) => {
+                                eprintln!("Error in IDLE: {}", why);
+                                break;
+                            }
                         }
                     }
 
-                    // FIXME: Spin off a kqueue watcher thread..
+                    if self.fsthread.is_none() {
+                        match self.fswait() {
+                            Ok(handle) => self.fsthread = Some(handle),
+                            Err(why) => {
+                                eprintln!("Error in watching file system: {}", why);
+                                break;
+                            }
+                        }
+                    }
+
                     match self.receiver.recv() {
                         Ok(SyncMessage::Exit) => break,
                         Ok(SyncMessage::ImapChanged) => {
-                            println!("IDLE thread exited");
+                            println!("IMAP changed");
                             if self.idlethread.is_some() {
                                 self.idlethread.take().unwrap().join().ok();
                             }
                         }
-                        Ok(m) => {
-                            eprintln!("Unexpected message in SyncDir: {:?}", m);
-                            break;
+                        Ok(SyncMessage::MaildirChanged) => {
+                            println!("Maildir changed");
                         }
                         Err(why) => {
                             eprintln!("Error in recv(): {}", why);

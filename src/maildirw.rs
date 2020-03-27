@@ -70,6 +70,10 @@ impl Maildir {
         Ok(Maildir { maildir })
     }
 
+    pub fn path(&self) -> PathBuf {
+        self.maildir.path().to_path_buf()
+    }
+
     pub fn save_message(&mut self, body: &[u8], flags: &str) -> Result<String, String> {
         if flags.contains('S') {
             self.maildir.store_cur_with_flags(body, flags)
