@@ -1,4 +1,4 @@
-use config::Config;
+use config::Account;
 use imap::types::{Fetch, Flag, Mailbox, Name, Uid, ZeroCopy};
 use imap::Client;
 use imap::Session;
@@ -67,7 +67,7 @@ pub struct Imap {
 }
 
 impl Imap {
-    pub fn new(config: &Config) -> Result<Imap, String> {
+    pub fn new(config: &Account) -> Result<Imap, String> {
         let client = Imap::connect(config)?;
         let mut session = client
             .login(config.username.as_str(), config.password.as_ref().unwrap())
@@ -95,7 +95,7 @@ impl Imap {
         self.session.debug = enable;
     }
 
-    fn connect(config: &Config) -> Result<Client<TlsStream<TcpStream>>, String> {
+    fn connect(config: &Account) -> Result<Client<TlsStream<TcpStream>>, String> {
         let socket_addr = (config.server.as_str(), config.port.unwrap());
 
         let mut tlsconnector = TlsConnector::builder();

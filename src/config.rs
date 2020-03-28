@@ -3,9 +3,10 @@ use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
 use std::process::Command;
+use std::vec::Vec;
 
 #[derive(Deserialize, Clone)]
-pub struct Config {
+pub struct Account {
     pub account: String,
     pub server: String,
     pub port: Option<u16>,
@@ -14,6 +15,12 @@ pub struct Config {
     pub maildir: String,
     pub password_command: Option<String>,
     pub password: Option<String>,
+    pub exclude: Option<Vec<String>>,
+}
+
+#[derive(Deserialize, Clone)]
+pub struct Config {
+    pub accounts: Vec<Account>,
 }
 
 impl Config {
@@ -23,24 +30,26 @@ impl Config {
         let mut f = File::open(dir).unwrap();
         let mut buf: String = String::new();
         f.read_to_string(&mut buf).unwrap();
-        let mut config: Config = toml::from_str(&buf).unwrap();
-        if config.port.is_none() {
-            config.port = Some(993);
+        let mut configs: Config = toml::from_str(&buf).unwrap();
+        for config in &mut configs.accounts {
+            if config.port.is_none() {
+                config.port = Some(993);
+            }
+            if config.password_command.is_some() {
+                let password = Command::new("sh")
+                    .arg("-c")
+                    .arg(config.password_command.clone().unwrap())
+                    .output()
+                    .expect("Could not execute password_command");
+                config.password = Some(
+                    String::from_utf8(password.stdout.as_slice().to_vec())
+                        .unwrap()
+                        .trim()
+                        .to_string(),
+                );
+            }
         }
-        if config.password_command.is_some() {
-            let password = Command::new("sh")
-                .arg("-c")
-                .arg(config.password_command.clone().unwrap())
-                .output()
-                .expect("Could not execute password_command");
-            config.password = Some(
-                String::from_utf8(password.stdout.as_slice().to_vec())
-                    .unwrap()
-                    .trim()
-                    .to_string(),
-            );
-        }
-        config
+        configs
     }
 
     pub fn dir() -> PathBuf {
@@ -51,7 +60,9 @@ impl Config {
         home.push(".runt");
         home
     }
+}
 
+impl Account {
     pub fn get_server_ca_cert(&self) -> Option<Certificate> {
         if let Some(ca_path) = &self.server_ca_path {
             let mut certbuf: Vec<u8> = Vec::new();

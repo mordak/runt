@@ -2,7 +2,7 @@ use cache::maildir_flags_from_imap;
 use cache::Cache;
 use cache::MessageMeta;
 use cache::SyncFlags;
-use config::Config;
+use config::Account;
 use imap::types::{Fetch, Mailbox, Uid, ZeroCopy};
 use imapw::{FetchResult, Imap, UidResult};
 use maildirw::Maildir;
@@ -23,7 +23,7 @@ pub enum SyncMessage {
 }
 
 pub struct SyncDir {
-    pub config: Config,
+    pub config: Account,
     pub mailbox: String,
     pub sender: Sender<SyncMessage>,
     receiver: Receiver<SyncMessage>,
@@ -35,7 +35,7 @@ pub struct SyncDir {
 }
 
 impl SyncDir {
-    pub fn new(config: &Config, mailbox: String) -> Result<SyncDir, String> {
+    pub fn new(config: &Account, mailbox: String) -> Result<SyncDir, String> {
         let myconfig = config.clone();
         let imap = Imap::new(&myconfig)?;
         let cache = Cache::new(&myconfig.account, &mailbox).unwrap();

@@ -29,10 +29,7 @@ use syncdir::{SyncDir, SyncMessage};
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
 fn main() {
-    let baseconfig = Config::new();
-    let config = baseconfig.clone();
-    let mut imap = Imap::new(&config).unwrap();
-
+    // set up signal handler for Ctrl-C
     unsafe {
         libc::signal(SIGINT, handle_sigint as usize);
     }
@@ -40,35 +37,32 @@ fn main() {
     let mut threads = vec![];
     let mut notifications = vec![];
 
-    match imap.list(None, Some("*")) {
-        Ok(listing) => {
-            for mailbox in listing.iter() {
-                /*
-                println!(
-                    "attributes: {:?} delim: {:?} name: {}",
-                    mailbox.attributes(),
-                    mailbox.delimiter(),
-                    mailbox.name()
-                );
-                */
-                if mailbox.name() == "admin"
-                    && !mailbox
+    // Parse out config and set up sync jobs
+    let configs = Config::new();
+    for config in configs.accounts {
+        let mut imap = Imap::new(&config).unwrap();
+        match imap.list(None, Some("*")) {
+            Ok(listing) => {
+                for mailbox in listing.iter() {
+                    if !mailbox
                         .attributes()
                         .contains(&imap::types::NameAttribute::NoSelect)
-                {
-                    // select it and sync
-                    match SyncDir::new(&baseconfig, mailbox.name().to_string()) {
-                        Err(e) => panic!("Sync failed: {}", e),
-                        Ok(mut sd) => {
-                            notifications.push(sd.sender.clone());
-                            threads.push(spawn(move || sd.sync()));
+                    {
+                        // select it and sync
+                        match SyncDir::new(&config, mailbox.name().to_string()) {
+                            Err(e) => panic!("Sync failed: {}", e),
+                            Ok(mut sd) => {
+                                notifications.push(sd.sender.clone());
+                                threads.push(spawn(move || sd.sync()));
+                            }
                         }
                     }
                 }
             }
-        }
-        Err(e) => println!("Error getting listing: {}", e),
-    };
+            Err(e) => println!("Error getting listing: {}", e),
+        };
+        imap.logout().unwrap();
+    }
 
     // spin off the thread to wait for Ctrl-C
     threads.push(spawn(move || {
@@ -83,8 +77,6 @@ fn main() {
     for t in threads {
         t.join().unwrap();
     }
-
-    imap.logout().unwrap();
 }
 
 #[allow(dead_code)]
