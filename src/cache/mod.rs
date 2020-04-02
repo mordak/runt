@@ -145,8 +145,8 @@ impl Cache {
     pub fn update(&mut self, uidres: &UidResult) -> Result<MessageMeta, String> {
         let uid = uidres.uid();
         self.get_uid(uid).and_then(|mut meta| {
-            println!("cache::update() {:?} == {:?}", meta, uidres);
             if !meta.is_equal(uidres) {
+                println!("Update {}: {:?} -> {:?}", uid, meta.flags(), uidres.flags());
                 meta.update(uidres);
                 self.db.update(&meta).map(|_| meta)
             } else {
