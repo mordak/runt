@@ -19,7 +19,9 @@ use std::vec::Vec;
 pub enum SyncMessage {
     Exit,
     ImapChanged,
+    ImapError(String),
     MaildirChanged,
+    MaildirError(String),
 }
 
 pub struct SyncDir {
@@ -54,13 +56,21 @@ impl SyncDir {
         })
     }
 
+    fn log(&self, msg: &str) {
+        println!("{}: {}", self.mailbox, msg);
+    }
+
+    fn elog(&self, msg: &str) {
+        eprintln!("{}: {}", self.mailbox, msg);
+    }
+
     fn idle(&self) -> Result<JoinHandle<()>, String> {
         let mut imap = Imap::new(&self.config)?;
         imap.select_mailbox(&self.mailbox.as_str())?;
         let sender = self.sender.clone();
         let handle = spawn(move || {
             if let Err(why) = imap.idle() {
-                eprintln!("Error in imap IDLE: {}", why);
+                sender.send(SyncMessage::ImapError(format!("{}", why))).ok();
             }
             imap.logout().ok();
             sender.send(SyncMessage::ImapChanged).ok();
@@ -86,7 +96,11 @@ impl SyncDir {
                             _ => (),
                         }
                     }
-                    Err(e) => eprintln!("Maildor watch error: {:?}", e),
+                    Err(e) => {
+                        sender
+                            .send(SyncMessage::MaildirError(format!("{:?}", e)))
+                            .ok();
+                    }
                 }
             }
         });
@@ -107,7 +121,7 @@ impl SyncDir {
     fn cache_message_for_uid(&mut self, uid: Uid) -> Result<(), String> {
         self.imap.fetch_uid(uid).and_then(|zc_vec_fetch| {
             for fetch in zc_vec_fetch.deref() {
-                eprintln!("Fetching UID {} FLAGS {:?}", uid, fetch.flags());
+                self.log(&format!("Fetching UID {} FLAGS {:?}", uid, fetch.flags()));
                 if let Err(e) = self.save_message_in_maildir(fetch) {
                     return Err(format!("Save UID {} failed: {}", uid, e));
                 }
@@ -131,12 +145,16 @@ impl SyncDir {
             self.delete_message(meta.uid())?;
             self.cache_message_for_uid(meta.uid())
         } else {
-            println!("Updating UID {}", uidres.uid());
+            self.log(&format!("Updating UID {}", uidres.uid()));
             self.cache.update(uidres).and_then(|newmeta| {
                 if meta.needs_move_from_new_to_cur(uidres)
                     && self.maildir.message_is_in_new(meta.id())?
                 {
-                    println!("Moving {} {} from new to cur", meta.uid(), meta.id());
+                    self.log(&format!(
+                        "Moving {} {} from new to cur",
+                        meta.uid(),
+                        meta.id()
+                    ));
                     self.maildir
                         .move_message_to_cur(meta.id(), &newmeta.flags())
                 } else {
@@ -159,11 +177,11 @@ impl SyncDir {
                         self.cache_message_for_uid(uid)
                     };
                     if let Err(e) = res {
-                        eprintln!("Cache UID {} failed: {}", uid, e);
+                        self.elog(&format!("Cache UID {} failed: {}", uid, e));
                         err = true;
                     }
                 }
-                FetchResult::Other(f) => println!("Got Other: {:?}", f),
+                FetchResult::Other(f) => self.log(&format!("Got Other: {:?}", f)),
             }
         }
         if err {
@@ -191,19 +209,19 @@ impl SyncDir {
                     FetchResult::Uid(uidres) => {
                         let uid = uidres.uid();
                         if !cached_uids.remove(&uid) {
-                            eprintln!("UID {} exists on server but not in cache", uid);
+                            self.elog(&format!("UID {} exists on server but not in cache", uid));
                             err = true;
                         }
                     }
-                    FetchResult::Other(f) => println!("Got Other: {:?}", f),
+                    FetchResult::Other(f) => self.log(&format!("Got Other: {:?}", f)),
                 }
             }
 
             // Remove uids from cache that have been removed on the server
             for uid in cached_uids {
-                println!("UID {} is gone on server", uid);
+                self.log(&format!("UID {} is gone on server", uid));
                 if let Err(e) = self.delete_message(uid) {
-                    eprintln!("Error deleting UID {}: {}", uid, e);
+                    self.elog(&format!("Error deleting UID {}: {}", uid, e));
                     err = true;
                 }
             }
@@ -221,8 +239,13 @@ impl SyncDir {
             0 => None,
             x => Some(x),
         };
+        let endstr = if let Some(x) = end {
+            format!("{}", x)
+        } else {
+            "*".to_string()
+        };
 
-        println!("Fetching UIDs 1:{:?}", end);
+        self.log(&format!("Fetching UIDs 1:{}", endstr));
         self.imap.fetch_uids(1, end).and_then(|zc_vec_fetch| {
             if !self.cache.is_valid(mailbox) {
                 // We have a new state, so delete the existing one
@@ -331,7 +354,7 @@ impl SyncDir {
                         .and_then(|_| self.get_new_messages(last_seen_uid + 1));
 
                     if let Err(e) = res {
-                        eprintln!("Error syncing: {}", e);
+                        self.elog(&format!("Error syncing: {}", e));
                         break;
                     };
 
@@ -339,7 +362,7 @@ impl SyncDir {
                         match self.idle() {
                             Ok(handle) => self.idlethread = Some(handle),
                             Err(why) => {
-                                eprintln!("Error in IDLE: {}", why);
+                                self.elog(&format!("Error in IDLE: {}", why));
                                 break;
                             }
                         }
@@ -349,7 +372,7 @@ impl SyncDir {
                         match self.fswait() {
                             Ok(handle) => self.fsthread = Some(handle),
                             Err(why) => {
-                                eprintln!("Error in watching file system: {}", why);
+                                self.elog(&format!("Error in watching file system: {}", why));
                                 break;
                             }
                         }
@@ -358,16 +381,22 @@ impl SyncDir {
                     match self.receiver.recv() {
                         Ok(SyncMessage::Exit) => break,
                         Ok(SyncMessage::ImapChanged) => {
-                            println!("IMAP changed");
+                            self.log("IMAP changed");
                             if self.idlethread.is_some() {
                                 self.idlethread.take().unwrap().join().ok();
                             }
                         }
                         Ok(SyncMessage::MaildirChanged) => {
-                            println!("Maildir changed");
+                            self.log("Maildir changed");
+                        }
+                        Ok(SyncMessage::ImapError(msg)) => {
+                            self.elog(&format!("IMAP Error: {}", msg));
+                        }
+                        Ok(SyncMessage::MaildirError(msg)) => {
+                            self.elog(&format!("Maildir Error: {}", msg));
                         }
                         Err(why) => {
-                            eprintln!("Error in recv(): {}", why);
+                            self.log(&format!("Error in recv(): {}", why));
                             break;
                         }
                     }
