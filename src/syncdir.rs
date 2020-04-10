@@ -192,10 +192,13 @@ impl SyncDir {
     }
 
     fn delete_message(&self, uid: u32) -> Result<(), String> {
-        self.cache
-            .get_uid(uid)
-            .and_then(|meta| self.maildir.delete_message(meta.id()))
-            .and_then(|_| self.cache.delete_uid(uid))
+        let meta = self.cache.get_uid(uid)?;
+        // It is ok if we can't find the message in our maildir, it
+        // may be deleted from both sides.
+        if let Err(why) = self.maildir.delete_message(meta.id()) {
+            self.elog(&format!("Deleting UID {}: {}", uid, why));
+        }
+        self.cache.delete_uid(uid)
     }
 
     fn remove_absent_uids(&mut self, zc_vec_fetch: &ZeroCopy<Vec<Fetch>>) -> Result<(), String> {
