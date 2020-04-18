@@ -61,7 +61,7 @@ fn main() {
             }
             Err(e) => println!("Error getting listing: {}", e),
         };
-        imap.logout().unwrap();
+        imap.logout().ok();
     }
 
     // spin off the thread to wait for Ctrl-C

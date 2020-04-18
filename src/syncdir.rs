@@ -408,6 +408,8 @@ impl SyncDir {
             })
             .unwrap();
 
-        self.imap.logout().unwrap();
+        if let Err(why) = self.imap.logout() {
+            self.elog(&format!("Error logging out: {}", why));
+        }
     }
 }
