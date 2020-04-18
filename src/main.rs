@@ -81,6 +81,6 @@ fn main() {
 
 #[allow(dead_code)]
 fn handle_sigint(_signal: i32) {
-    println!("Got SIGINT");
+    println!("Shutting down...");
     SHUTDOWN.store(true, Ordering::Relaxed);
 }
