@@ -29,7 +29,6 @@ pub struct SyncDir {
     pub mailbox: String,
     pub sender: Sender<SyncMessage>,
     receiver: Receiver<SyncMessage>,
-    imap: Imap,
     cache: Cache,
     maildir: Maildir,
     idlethread: Option<JoinHandle<()>>,
@@ -39,7 +38,6 @@ pub struct SyncDir {
 impl SyncDir {
     pub fn new(config: &Account, mailbox: String) -> Result<SyncDir, String> {
         let myconfig = config.clone();
-        let imap = Imap::new(&myconfig)?;
         let cache = Cache::new(&myconfig.account, &mailbox).unwrap();
         let maildir = Maildir::new(&myconfig.maildir, &myconfig.account, &mailbox)?;
         let (sender, receiver) = channel();
@@ -48,7 +46,6 @@ impl SyncDir {
             mailbox,
             sender,
             receiver,
-            imap,
             cache,
             maildir,
             idlethread: None,
@@ -119,8 +116,8 @@ impl SyncDir {
             .and_then(|id| self.cache.add(&id, &fetch))
     }
 
-    fn cache_message_for_uid(&mut self, uid: Uid) -> Result<(), String> {
-        self.imap.fetch_uid(uid).and_then(|zc_vec_fetch| {
+    fn cache_message_for_uid(&mut self, imap: &mut Imap, uid: Uid) -> Result<(), String> {
+        imap.fetch_uid(uid).and_then(|zc_vec_fetch| {
             for fetch in zc_vec_fetch.deref() {
                 self.log(&format!("Fetching UID {} FLAGS {:?}", uid, fetch.flags()));
                 if let Err(e) = self.save_message_in_maildir(fetch) {
@@ -133,6 +130,7 @@ impl SyncDir {
 
     fn update_cache_for_uid(
         &mut self,
+        imap: &mut Imap,
         meta: &MessageMeta,
         uidres: &UidResult,
     ) -> Result<(), String> {
@@ -144,7 +142,7 @@ impl SyncDir {
         if meta.needs_refetch(uidres) {
             // Pull down a whole new copy of the message.
             self.delete_message(meta.uid())?;
-            self.cache_message_for_uid(meta.uid())
+            self.cache_message_for_uid(imap, meta.uid())
         } else {
             self.log(&format!("Updating UID {}", uidres.uid()));
             self.cache.update(uidres).and_then(|newmeta| {
@@ -166,16 +164,20 @@ impl SyncDir {
         }
     }
 
-    fn cache_uids(&mut self, zc_vec_fetch: &ZeroCopy<Vec<Fetch>>) -> Result<(), String> {
+    fn cache_uids(
+        &mut self,
+        imap: &mut Imap,
+        zc_vec_fetch: &ZeroCopy<Vec<Fetch>>,
+    ) -> Result<(), String> {
         let mut err = false;
         for fetch in zc_vec_fetch.deref() {
             match FetchResult::from(fetch) {
                 FetchResult::Uid(uidres) => {
                     let uid = uidres.uid();
                     let res = if let Ok(meta) = self.cache.get_uid(uid) {
-                        self.update_cache_for_uid(&meta, &uidres)
+                        self.update_cache_for_uid(imap, &meta, &uidres)
                     } else {
-                        self.cache_message_for_uid(uid)
+                        self.cache_message_for_uid(imap, uid)
                     };
                     if let Err(e) = res {
                         self.elog(&format!("Cache UID {} failed: {}", uid, e));
@@ -238,7 +240,12 @@ impl SyncDir {
         })
     }
 
-    fn refresh_cache(&mut self, last_seen_uid: u32, mailbox: &Mailbox) -> Result<(), String> {
+    fn refresh_cache(
+        &mut self,
+        imap: &mut Imap,
+        last_seen_uid: u32,
+        mailbox: &Mailbox,
+    ) -> Result<(), String> {
         let end: Option<u32> = match last_seen_uid {
             0 => None,
             x => Some(x),
@@ -250,26 +257,25 @@ impl SyncDir {
         };
 
         self.log(&format!("Fetching UIDs 1:{}", endstr));
-        self.imap.fetch_uids(1, end).and_then(|zc_vec_fetch| {
+        imap.fetch_uids(1, end).and_then(|zc_vec_fetch| {
             if !self.cache.is_valid(mailbox) {
                 // We have a new state, so delete the existing one
                 self.cache.delete_maildir_state()
             } else {
                 Ok(())
             }
-            .and_then(|_| self.cache_uids(&zc_vec_fetch))
+            .and_then(|_| self.cache_uids(imap, &zc_vec_fetch))
             .and_then(|_| self.remove_absent_uids(&zc_vec_fetch))
             .and_then(|_| self.cache.update_imap_state(mailbox))
         })
     }
 
-    fn get_new_messages(&mut self, uid: u32) -> Result<(), String> {
-        self.imap
-            .fetch_uids(uid, None)
-            .and_then(|zc_vec_fetch| self.cache_uids(&zc_vec_fetch))
+    fn get_new_messages(&mut self, imap: &mut Imap, uid: u32) -> Result<(), String> {
+        imap.fetch_uids(uid, None)
+            .and_then(|zc_vec_fetch| self.cache_uids(imap, &zc_vec_fetch))
     }
 
-    fn push_maildir_changes(&mut self) -> Result<(), String> {
+    fn push_maildir_changes(&mut self, imap: &mut Imap) -> Result<(), String> {
         let mut ids = self.cache.get_known_ids()?;
         let (new, changed) = self.maildir.get_updates(&mut ids)?;
         let mut refetch = HashSet::<u32>::new();
@@ -279,7 +285,7 @@ impl SyncDir {
         // from the server.
         for meta in ids.values() {
             // delete from server
-            self.imap.delete_uid(meta.uid())?;
+            imap.delete_uid(meta.uid())?;
             // delete from cache
             self.cache.delete_uid(meta.uid())?;
             // the change will come back to us on the IDLE
@@ -298,11 +304,11 @@ impl SyncDir {
             let maildir_flags = SyncFlags::from(mail_v.flags());
             let flags_diff = cache_flags.diff(maildir_flags);
             if let Some(flags) = flags_diff.add.as_imap_flags() {
-                self.imap.add_flags_for_uid(cache_v.uid(), &flags)?;
+                imap.add_flags_for_uid(cache_v.uid(), &flags)?;
                 refetch.insert(cache_v.uid());
             }
             if let Some(flags) = flags_diff.sub.as_imap_flags() {
-                self.imap.remove_flags_for_uid(cache_v.uid(), &flags)?;
+                imap.remove_flags_for_uid(cache_v.uid(), &flags)?;
                 refetch.insert(cache_v.uid());
             }
 
@@ -311,7 +317,7 @@ impl SyncDir {
             //        If we store the file mod date, we could
             //        use that instead...
             if cache_v.size() as u64 != mail_v.size() {
-                self.imap.replace_uid(
+                imap.replace_uid(
                     cache_v.uid(),
                     &fs::read(mail_v.path()).map_err(|e| e.to_string())?,
                 )?;
@@ -326,90 +332,83 @@ impl SyncDir {
         for id in new {
             let mail_v = self.maildir.get_id(&id)?;
             // Push to the server first, then delete the local copy
-            self.imap
-                .append(&fs::read(mail_v.path()).map_err(|e| e.to_string())?, None)?;
+            imap.append(&fs::read(mail_v.path()).map_err(|e| e.to_string())?, None)?;
             // These will come back to us on the idle loop,
             // at which time they will get cache entries.
             self.maildir.delete_message(&id)?;
         }
 
         for uid in refetch {
-            self.imap
-                .fetch_uid_meta(uid)
-                .and_then(|zc_vec_fetch| self.cache_uids(&zc_vec_fetch))?;
+            imap.fetch_uid_meta(uid)
+                .and_then(|zc_vec_fetch| self.cache_uids(imap, &zc_vec_fetch))?;
         }
 
         self.cache.update_maildir_state()
     }
 
-    pub fn sync(&mut self) {
-        //self.imap.enable_qresync().unwrap();
-        //self.imap.debug(true);
-        self.imap
-            .select_mailbox(&self.mailbox.as_str())
-            .and_then(|mailbox| {
-                // FIXME: HIGHESTMODSEQ support, will trigger VANISHED responses
-                loop {
-                    let last_seen_uid = self.cache.get_last_seen_uid();
-                    let res = self
-                        .refresh_cache(last_seen_uid, &mailbox)
-                        .and_then(|_| self.push_maildir_changes())
-                        .and_then(|_| self.get_new_messages(last_seen_uid + 1));
+    pub fn sync(&mut self) -> Result<(), String> {
+        loop {
+            let mut imap = Imap::new(&self.config)?;
+            //imap.debug(true);
+            // FIXME: HIGHESTMODSEQ support, will trigger VANISHED responses
+            //imap.enable_qresync().unwrap();
+            let mailbox = imap.select_mailbox(&self.mailbox.as_str())?;
+            let last_seen_uid = self.cache.get_last_seen_uid();
 
-                    if let Err(e) = res {
-                        self.elog(&format!("Error syncing: {}", e));
+            let res = self
+                .refresh_cache(&mut imap, last_seen_uid, &mailbox)
+                .and_then(|_| self.push_maildir_changes(&mut imap))
+                .and_then(|_| self.get_new_messages(&mut imap, last_seen_uid + 1))
+                .and_then(|_| imap.logout());
+
+            if let Err(e) = res {
+                self.elog(&format!("Error syncing: {}", e));
+                break;
+            };
+
+            if self.idlethread.is_none() {
+                match self.idle() {
+                    Ok(handle) => self.idlethread = Some(handle),
+                    Err(why) => {
+                        self.elog(&format!("Error in IDLE: {}", why));
                         break;
-                    };
-
-                    if self.idlethread.is_none() {
-                        match self.idle() {
-                            Ok(handle) => self.idlethread = Some(handle),
-                            Err(why) => {
-                                self.elog(&format!("Error in IDLE: {}", why));
-                                break;
-                            }
-                        }
-                    }
-
-                    if self.fsthread.is_none() {
-                        match self.fswait() {
-                            Ok(handle) => self.fsthread = Some(handle),
-                            Err(why) => {
-                                self.elog(&format!("Error in watching file system: {}", why));
-                                break;
-                            }
-                        }
-                    }
-
-                    match self.receiver.recv() {
-                        Ok(SyncMessage::Exit) => break,
-                        Ok(SyncMessage::ImapChanged) => {
-                            self.log("IMAP changed");
-                            if self.idlethread.is_some() {
-                                self.idlethread.take().unwrap().join().ok();
-                            }
-                        }
-                        Ok(SyncMessage::MaildirChanged) => {
-                            self.log("Maildir changed");
-                        }
-                        Ok(SyncMessage::ImapError(msg)) => {
-                            self.elog(&format!("IMAP Error: {}", msg));
-                        }
-                        Ok(SyncMessage::MaildirError(msg)) => {
-                            self.elog(&format!("Maildir Error: {}", msg));
-                        }
-                        Err(why) => {
-                            self.log(&format!("Error in recv(): {}", why));
-                            break;
-                        }
                     }
                 }
-                Ok(())
-            })
-            .unwrap();
+            }
 
-        if let Err(why) = self.imap.logout() {
-            self.elog(&format!("Error logging out: {}", why));
+            if self.fsthread.is_none() {
+                match self.fswait() {
+                    Ok(handle) => self.fsthread = Some(handle),
+                    Err(why) => {
+                        self.elog(&format!("Error in watching file system: {}", why));
+                        break;
+                    }
+                }
+            }
+
+            match self.receiver.recv() {
+                Ok(SyncMessage::Exit) => break,
+                Ok(SyncMessage::ImapChanged) => {
+                    self.log("IMAP changed");
+                    if self.idlethread.is_some() {
+                        self.idlethread.take().unwrap().join().ok();
+                    }
+                }
+                Ok(SyncMessage::MaildirChanged) => {
+                    self.log("Maildir changed");
+                }
+                Ok(SyncMessage::ImapError(msg)) => {
+                    self.elog(&format!("IMAP Error: {}", msg));
+                }
+                Ok(SyncMessage::MaildirError(msg)) => {
+                    self.elog(&format!("Maildir Error: {}", msg));
+                }
+                Err(why) => {
+                    self.log(&format!("Error in recv(): {}", why));
+                    break;
+                }
+            }
         }
+        Ok(())
     }
 }

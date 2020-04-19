@@ -72,10 +72,13 @@ fn main() {
         for s in notifications {
             s.send(SyncMessage::Exit).ok();
         }
+        Ok(())
     }));
 
     for t in threads {
-        t.join().unwrap();
+        if let Err(what) = t.join().unwrap() {
+            eprintln!("Error joining sync thread: {}", what);
+        }
     }
 }
 
