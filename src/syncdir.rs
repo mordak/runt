@@ -67,6 +67,7 @@ impl SyncDir {
     fn idle(&self) -> Result<JoinHandle<()>, String> {
         let mut imap = Imap::new(&self.config)?;
         imap.select_mailbox(&self.mailbox.as_str())?;
+        //imap.debug(true);
         let sender = self.sender.clone();
         let handle = spawn(move || {
             if let Err(why) = imap.idle() {
@@ -342,7 +343,6 @@ impl SyncDir {
     }
 
     pub fn sync(&mut self) {
-        //self.imap.debug(true);
         //self.imap.enable_qresync().unwrap();
         //self.imap.debug(true);
         self.imap
