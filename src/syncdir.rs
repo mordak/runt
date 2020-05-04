@@ -141,7 +141,7 @@ impl SyncDir {
 
         if meta.needs_refetch(uidres) {
             // Pull down a whole new copy of the message.
-            self.delete_message(meta.uid())?;
+            self.delete_message_from_maildir(meta.uid())?;
             self.cache_message_for_uid(imap, meta.uid())
         } else {
             self.log(&format!(
@@ -169,7 +169,7 @@ impl SyncDir {
         }
     }
 
-    fn cache_uids(
+    fn cache_uids_from_imap(
         &mut self,
         imap: &mut Imap,
         zc_vec_fetch: &ZeroCopy<Vec<Fetch>>,
@@ -199,7 +199,7 @@ impl SyncDir {
         }
     }
 
-    fn delete_message(&self, uid: u32) -> Result<(), String> {
+    fn delete_message_from_maildir(&self, uid: u32) -> Result<(), String> {
         let meta = self.cache.get_uid(uid)?;
         // It is ok if we can't find the message in our maildir, it
         // may be deleted from both sides.
@@ -209,7 +209,10 @@ impl SyncDir {
         self.cache.delete_uid(uid)
     }
 
-    fn remove_absent_uids(&mut self, zc_vec_fetch: &ZeroCopy<Vec<Fetch>>) -> Result<(), String> {
+    fn remove_imap_deleted_messages(
+        &mut self,
+        zc_vec_fetch: &ZeroCopy<Vec<Fetch>>,
+    ) -> Result<(), String> {
         let mut err = false;
         self.cache.get_known_uids().and_then(|mut cached_uids| {
             // Remove all the fetched uids from the cached values
@@ -231,7 +234,7 @@ impl SyncDir {
             // Remove uids from cache that have been removed on the server
             for uid in cached_uids {
                 self.log(&format!("UID {} is gone on server", uid));
-                if let Err(e) = self.delete_message(uid) {
+                if let Err(e) = self.delete_message_from_maildir(uid) {
                     self.elog(&format!("Error deleting UID {}: {}", uid, e));
                     err = true;
                 }
@@ -245,7 +248,7 @@ impl SyncDir {
         })
     }
 
-    fn refresh_cache(
+    fn sync_cache_from_imap(
         &mut self,
         imap: &mut Imap,
         last_seen_uid: u32,
@@ -255,32 +258,25 @@ impl SyncDir {
             0 => None,
             x => Some(x),
         };
-        let endstr = if let Some(x) = end {
-            format!("{}", x)
-        } else {
-            "*".to_string()
-        };
 
-        self.log(&format!("Fetching UIDs 1:{}", endstr));
+        // Updating existing cache entries
         imap.fetch_uids(1, end).and_then(|zc_vec_fetch| {
             if !self.cache.is_valid(mailbox) {
                 // We have a new state, so delete the existing one
-                self.cache.delete_maildir_state()
-            } else {
-                Ok(())
+                self.cache.delete_maildir_state()?;
             }
-            .and_then(|_| self.cache_uids(imap, &zc_vec_fetch))
-            .and_then(|_| self.remove_absent_uids(&zc_vec_fetch))
-            .and_then(|_| self.cache.update_imap_state(mailbox))
-        })
+            self.cache_uids_from_imap(imap, &zc_vec_fetch)?;
+            self.remove_imap_deleted_messages(&zc_vec_fetch)
+        })?;
+
+        // Fetch new messgaes
+        imap.fetch_uids(last_seen_uid + 1, None)
+            .and_then(|zc_vec_fetch| self.cache_uids_from_imap(imap, &zc_vec_fetch))?;
+
+        self.cache.update_imap_state(mailbox)
     }
 
-    fn get_new_messages(&mut self, imap: &mut Imap, uid: u32) -> Result<(), String> {
-        imap.fetch_uids(uid, None)
-            .and_then(|zc_vec_fetch| self.cache_uids(imap, &zc_vec_fetch))
-    }
-
-    fn push_maildir_changes(&mut self, imap: &mut Imap) -> Result<(), String> {
+    fn sync_cache_from_maildir(&mut self, imap: &mut Imap) -> Result<(), String> {
         let mut ids = self.cache.get_known_ids()?;
         let (new, changed) = self.maildir.get_updates(&mut ids)?;
         let mut refetch = HashSet::<u32>::new();
@@ -345,7 +341,7 @@ impl SyncDir {
 
         for uid in refetch {
             imap.fetch_uid_meta(uid)
-                .and_then(|zc_vec_fetch| self.cache_uids(imap, &zc_vec_fetch))?;
+                .and_then(|zc_vec_fetch| self.cache_uids_from_imap(imap, &zc_vec_fetch))?;
         }
 
         self.cache.update_maildir_state()
@@ -360,11 +356,12 @@ impl SyncDir {
             let mailbox = imap.select_mailbox(&self.mailbox.as_str())?;
             let last_seen_uid = self.cache.get_last_seen_uid();
 
+            self.log("Synchronizing..");
             let res = self
-                .refresh_cache(&mut imap, last_seen_uid, &mailbox)
-                .and_then(|_| self.push_maildir_changes(&mut imap))
-                .and_then(|_| self.get_new_messages(&mut imap, last_seen_uid + 1))
+                .sync_cache_from_imap(&mut imap, last_seen_uid, &mailbox)
+                .and_then(|_| self.sync_cache_from_maildir(&mut imap))
                 .and_then(|_| imap.logout());
+            self.log("Done");
 
             if let Err(e) = res {
                 self.elog(&format!("Error syncing: {}", e));
