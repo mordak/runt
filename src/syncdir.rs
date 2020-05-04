@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::ops::Deref;
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::thread::{spawn, JoinHandle};
+use std::thread::{sleep, spawn, JoinHandle};
 use std::time::Duration;
 use std::vec::Vec;
 
@@ -346,7 +346,7 @@ impl SyncDir {
         self.cache.update_maildir_state()
     }
 
-    pub fn sync(&mut self) -> Result<(), String> {
+    fn do_sync(&mut self) -> Result<(), String> {
         loop {
             let mut imap = Imap::new(&self.config)?;
             //imap.debug(true);
@@ -410,5 +410,18 @@ impl SyncDir {
             }
         }
         Ok(())
+    }
+
+    pub fn sync(&mut self) -> Result<(), String> {
+        loop {
+            match self.do_sync() {
+                Err(why) => {
+                    self.elog(&format!("Sync exited with error: {}", why));
+                    // sleep 10 to throttle retries
+                    sleep(Duration::from_secs(10));
+                }
+                Ok(_) => break Ok(()),
+            }
+        }
     }
 }
