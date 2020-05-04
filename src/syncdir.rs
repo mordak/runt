@@ -68,7 +68,7 @@ impl SyncDir {
         let sender = self.sender.clone();
         let handle = spawn(move || {
             if let Err(why) = imap.idle() {
-                sender.send(SyncMessage::ImapError(why.to_string())).ok();
+                sender.send(SyncMessage::ImapError(why)).ok();
             }
             imap.logout().ok();
             sender.send(SyncMessage::ImapChanged).ok();
