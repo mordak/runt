@@ -144,7 +144,12 @@ impl SyncDir {
             self.delete_message(meta.uid())?;
             self.cache_message_for_uid(imap, meta.uid())
         } else {
-            self.log(&format!("Updating UID {}", uidres.uid()));
+            self.log(&format!(
+                "Updating UID {}: {:?} -> {:?}",
+                uidres.uid(),
+                meta.flags(),
+                uidres.flags()
+            ));
             self.cache.update(uidres).and_then(|newmeta| {
                 if meta.needs_move_from_new_to_cur(uidres)
                     && self.maildir.message_is_in_new(meta.id())?

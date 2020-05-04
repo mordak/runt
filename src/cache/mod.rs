@@ -146,7 +146,6 @@ impl Cache {
         let uid = uidres.uid();
         self.get_uid(uid).and_then(|mut meta| {
             if !meta.is_equal(uidres) {
-                println!("Update {}: {:?} -> {:?}", uid, meta.flags(), uidres.flags());
                 meta.update(uidres);
                 self.db.update(&meta).map(|_| meta)
             } else {
