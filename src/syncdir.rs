@@ -2,6 +2,7 @@ use cache::maildir_flags_from_imap;
 use cache::Cache;
 use cache::MessageMeta;
 use cache::SyncFlags;
+use chrono::prelude::*;
 use config::Account;
 use imap::types::{Fetch, Mailbox, Uid, ZeroCopy};
 use imapw::{FetchResult, Imap, UidResult};
@@ -54,11 +55,21 @@ impl SyncDir {
     }
 
     fn log(&self, msg: &str) {
-        println!("{}: {}", self.mailbox, msg);
+        println!(
+            "{} {}: {}",
+            Local::now().format("%Y-%m-%d %H:%M:%S.%f"),
+            self.mailbox,
+            msg
+        );
     }
 
     fn elog(&self, msg: &str) {
-        eprintln!("{}: {}", self.mailbox, msg);
+        eprintln!(
+            "{} {}: {}",
+            Local::now().format("%Y-%m-%d %H:%M:%S.%f"),
+            self.mailbox,
+            msg
+        );
     }
 
     fn idle(&self) -> Result<JoinHandle<()>, String> {

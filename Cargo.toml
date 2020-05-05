@@ -4,7 +4,6 @@ version = "0.1.0"
 authors = ["Todd Mortimer <todd@opennet.ca>"]
 
 [dependencies]
-
 chrono = "0.4.10"
 imap = "2.0.1"
 imap-proto = "0.10.2"
