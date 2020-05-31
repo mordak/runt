@@ -193,7 +193,7 @@ impl Imap {
         Ok(())
     }
 
-    pub fn append(&mut self, body: &[u8], flags: Option<&[String]>) -> Result<(), String> {
+    pub fn append(&mut self, body: &[u8], flags: Option<Vec<String>>) -> Result<(), String> {
         if self.mailbox.is_none() {
             return Err("No mailbox selected".to_string());
         }
@@ -238,7 +238,7 @@ impl Imap {
             .collect();
 
         // Append first so if it fails we don't delete the original
-        self.append(body, Some(&flags))?;
+        self.append(body, Some(flags))?;
         self.delete_uid(uid)
     }
 

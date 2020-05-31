@@ -343,8 +343,10 @@ impl SyncDir {
         // but not in the cache. These need to be sent to the server.
         for id in new {
             let mail_v = self.maildir.get_id(&id)?;
+            let flags = SyncFlags::from(mail_v.flags()).as_imap_flags();
+
             // Push to the server first, then delete the local copy
-            imap.append(&fs::read(mail_v.path()).map_err(|e| e.to_string())?, None)?;
+            imap.append(&fs::read(mail_v.path()).map_err(|e| e.to_string())?, flags)?;
             // These will come back to us on the idle loop,
             // at which time they will get cache entries.
             self.maildir.delete_message(&id)?;
