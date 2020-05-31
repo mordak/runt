@@ -130,9 +130,9 @@ impl SyncDir {
     fn cache_message_for_uid(&mut self, imap: &mut Imap, uid: Uid) -> Result<(), String> {
         imap.fetch_uid(uid).and_then(|zc_vec_fetch| {
             for fetch in zc_vec_fetch.deref() {
-                self.log(&format!("Fetching UID {} FLAGS {:?}", uid, fetch.flags()));
+                self.log(&format!("Fetching UID {}: {:?}", uid, fetch.flags()));
                 if let Err(e) = self.save_message_in_maildir(fetch) {
-                    return Err(format!("Save UID {} failed: {}", uid, e));
+                    return Err(format!("Save UID {} in maildir failed: {}", uid, e));
                 }
             }
             Ok(())
@@ -165,11 +165,6 @@ impl SyncDir {
                 if meta.needs_move_from_new_to_cur(uidres)
                     && self.maildir.message_is_in_new(meta.id())?
                 {
-                    self.log(&format!(
-                        "Moving {} {} from new to cur",
-                        meta.uid(),
-                        meta.id()
-                    ));
                     self.maildir
                         .move_message_to_cur(meta.id(), &newmeta.flags())
                 } else {
@@ -200,7 +195,7 @@ impl SyncDir {
                         err = true;
                     }
                 }
-                FetchResult::Other(f) => self.log(&format!("Got Other: {:?}", f)),
+                FetchResult::Other(f) => self.log(&format!("Got Other FETCH response: {:?}", f)),
             }
         }
         if err {
@@ -214,8 +209,9 @@ impl SyncDir {
         let meta = self.cache.get_uid(uid)?;
         // It is ok if we can't find the message in our maildir, it
         // may be deleted from both sides.
+        self.log(&format!("Deleting UID {} from maildir", uid));
         if let Err(why) = self.maildir.delete_message(meta.id()) {
-            self.elog(&format!("Deleting UID {}: {}", uid, why));
+            self.elog(&format!("Error deleting UID {}: {}", uid, why));
         }
         self.cache.delete_uid(uid)
     }
@@ -244,7 +240,6 @@ impl SyncDir {
 
             // Remove uids from cache that have been removed on the server
             for uid in cached_uids {
-                self.log(&format!("UID {} is gone on server", uid));
                 if let Err(e) = self.delete_message_from_maildir(uid) {
                     self.elog(&format!("Error deleting UID {}: {}", uid, e));
                     err = true;
@@ -297,6 +292,7 @@ impl SyncDir {
         // from the server.
         for meta in ids.values() {
             // delete from server
+            self.log(&format!("Deleting UID {} from server", meta.uid()));
             imap.delete_uid(meta.uid())?;
             // delete from cache
             self.cache.delete_uid(meta.uid())?;
