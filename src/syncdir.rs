@@ -16,6 +16,7 @@ use std::thread::{sleep, spawn, JoinHandle};
 use std::time::Duration;
 use std::vec::Vec;
 
+/// A enum used to pass messages between threads.
 #[derive(Debug)]
 pub enum SyncMessage {
     Exit,
@@ -25,6 +26,8 @@ pub enum SyncMessage {
     MaildirError(String),
 }
 
+/// A struct representing a single mailbox to synchronize
+/// including the IMAP side and corresponding Maildir
 pub struct SyncDir {
     pub config: Account,
     pub mailbox: String,
@@ -37,6 +40,7 @@ pub struct SyncDir {
 }
 
 impl SyncDir {
+    /// Make a new SyncDir from the given config and mailbox name
     pub fn new(config: &Account, mailbox: String) -> Result<SyncDir, String> {
         let myconfig = config.clone();
         let cache = Cache::new(&myconfig.account, &mailbox).unwrap();
@@ -54,6 +58,7 @@ impl SyncDir {
         })
     }
 
+    /// Log a message to the console
     fn log(&self, msg: &str) {
         println!(
             "{} {}: {}",
@@ -63,6 +68,7 @@ impl SyncDir {
         );
     }
 
+    /// Log an error message to the console
     fn elog(&self, msg: &str) {
         eprintln!(
             "{} {}: {}",
@@ -72,6 +78,8 @@ impl SyncDir {
         );
     }
 
+    /// Spawn a thread on this mailbox and IDLE it. When the IDLE
+    /// ends, the thread will send a message to the main sync thread.
     fn idle(&self) -> Result<JoinHandle<()>, String> {
         let mut imap = Imap::new(&self.config)?;
         imap.select_mailbox(&self.mailbox.as_str())?;
@@ -87,6 +95,8 @@ impl SyncDir {
         Ok(handle)
     }
 
+    /// Spawn a thread on this Maildir and wait for changes. On change,
+    /// a message is sent to the parent the main sync thread.
     fn fswait(&self) -> Result<JoinHandle<()>, String> {
         let sender = self.sender.clone();
         let path = self.maildir.path();
@@ -116,6 +126,10 @@ impl SyncDir {
         Ok(handle)
     }
 
+    /// Save the given message in the Maildir.
+    ///
+    /// Updates the cache db on success. On failure, then we will
+    /// refetch on the next loop.
     fn save_message_in_maildir(&mut self, fetch: &Fetch) -> Result<MessageMeta, String> {
         fetch
             .body()
@@ -127,6 +141,30 @@ impl SyncDir {
             .and_then(|id| self.cache.add(&id, &fetch))
     }
 
+    /// Delete a given UID from the Maildir and clear its entry from cache.
+    ///
+    /// Unconditionally deletes the cache db entry for this message after
+    /// attempting to delete the message from the maildir. The most common
+    /// cause of delete errors is the message already being deleted from the
+    /// Maildir, so erroring prevents the cache db from being updated. In the
+    /// event that deleting the message fails for some other reason, it will
+    /// appear to be a new message in the Maildir and will be resynced on
+    /// next sync. This might annoy the user, but errs on the side of caution
+    /// when things go wrong.
+    fn delete_message_from_maildir(&self, uid: u32) -> Result<(), String> {
+        let meta = self.cache.get_uid(uid)?;
+        // It is ok if we can't find the message in our maildir, it
+        // may be deleted from both sides.
+        self.log(&format!("Deleting UID {} from maildir", uid));
+        if let Err(why) = self.maildir.delete_message(meta.id()) {
+            self.elog(&format!("Error deleting UID {}: {}", uid, why));
+        }
+        self.cache.delete_uid(uid)
+    }
+
+    /// Fetch the given UID from IMAP and save it in the Maildir.
+    ///
+    /// Used to fetch new messages from the server.
     fn cache_message_for_uid(&mut self, imap: &mut Imap, uid: Uid) -> Result<(), String> {
         imap.fetch_uid(uid).and_then(|zc_vec_fetch| {
             for fetch in zc_vec_fetch.deref() {
@@ -139,6 +177,11 @@ impl SyncDir {
         })
     }
 
+    /// Compare the given cache MessageMeta and IMAP UidResult, and decide if the
+    /// cache version needs to be updated. If so, fetch the updated message and save
+    /// it in the Maildir.
+    ///
+    /// Used to update cache entries for messages we already know about.
     fn update_cache_for_uid(
         &mut self,
         imap: &mut Imap,
@@ -175,6 +218,12 @@ impl SyncDir {
         }
     }
 
+    /// For the given IMAP FETCH results, update the cache. Existing messages
+    /// are updated if needed, and new messages are downloaded.
+    ///
+    /// Used to process a full set of IMAP FETCH results. Since the IMAP
+    /// server is the source of truth, anything in the given FETCH results
+    /// must be either existing / known or new and need to be downloaded.
     fn cache_uids_from_imap(
         &mut self,
         imap: &mut Imap,
@@ -205,17 +254,13 @@ impl SyncDir {
         }
     }
 
-    fn delete_message_from_maildir(&self, uid: u32) -> Result<(), String> {
-        let meta = self.cache.get_uid(uid)?;
-        // It is ok if we can't find the message in our maildir, it
-        // may be deleted from both sides.
-        self.log(&format!("Deleting UID {} from maildir", uid));
-        if let Err(why) = self.maildir.delete_message(meta.id()) {
-            self.elog(&format!("Error deleting UID {}: {}", uid, why));
-        }
-        self.cache.delete_uid(uid)
-    }
-
+    /// Compare the given IMAP FETCH results with the cache, and remove any entries
+    /// from the cache that are no longer on the server.
+    ///
+    /// Called after processing the given fetch results and updating the
+    /// cache db and Maildir. Any UIDs remaining in the cache db must have
+    /// been deleted on the server and should be deleted from the cache db
+    /// and the Maildir.
     fn remove_imap_deleted_messages(
         &mut self,
         zc_vec_fetch: &ZeroCopy<Vec<Fetch>>,
@@ -254,6 +299,11 @@ impl SyncDir {
         })
     }
 
+    /// Perform a sync from IMAP to the cache. This updates existing cache entries,
+    /// removes messages deleted on the server, and downloads new messages.
+    ///
+    /// This is the main Server -> Local routine for UIDs. After this completes anything
+    /// on the server will be in the cache db and in the Maildir.
     fn sync_cache_from_imap(
         &mut self,
         imap: &mut Imap,
@@ -282,6 +332,13 @@ impl SyncDir {
         self.cache.update_imap_state(mailbox)
     }
 
+    /// Sync the Maildir with the cache. Locally deleted messages are deleted from
+    /// the server, local changes are pushed to the server, and new messages are
+    /// uploaded to the server.
+    ///
+    /// This is the main Local -> Server routine for Maildir IDs. Maildir entries
+    /// are compared with the cache db and any changes in the Maildir are propagated
+    /// to the server.
     fn sync_cache_from_maildir(&mut self, imap: &mut Imap) -> Result<(), String> {
         let mut ids = self.cache.get_known_ids()?;
         let (new, changed) = self.maildir.get_updates(&mut ids)?;
@@ -356,6 +413,15 @@ impl SyncDir {
         self.cache.update_maildir_state()
     }
 
+    /// Run loop for the sync engine. Performs a full sync then waits on change
+    /// events from the IMAP server or the Maildir.
+    ///
+    /// On each change, performs a sync between the server and the Mailfir.
+    /// Each sync does a UID sync between the IMAP server and the cache db and
+    /// Maildir. Then does a Maildir ID sync between the cache db and the IMAP
+    /// server. The IMAP server knows about UIDs, and the Maildir knows about
+    /// IDs. The cache db holds the mapping between these sets, and allows the
+    /// sync engine to identify new and changed elements between each set.
     fn do_sync(&mut self) -> Result<(), String> {
         loop {
             let mut imap = Imap::new(&self.config)?;
@@ -423,6 +489,9 @@ impl SyncDir {
         Ok(())
     }
 
+    /// Public interface for the sync engine. Runs a sync loop until it exits.
+    /// If the sync loop exited with an error, then it will respawn after a
+    /// short delay.
     pub fn sync(&mut self) -> Result<(), String> {
         loop {
             match self.do_sync() {

@@ -10,6 +10,7 @@ pub struct Maildir {
     maildir: SubMaildir,
 }
 
+/// A struct representing a mail message in the Maildir.
 pub struct IdResult {
     //id: String,
     flags: String,
@@ -40,6 +41,8 @@ impl IdResult {
     }
 }
 
+/// Determine if the given cache db entry for the message and the maildir
+/// entry for the message are equivalent.
 fn meta_equal(maildir_meta: &MailEntry, cache_meta: &MessageMeta) -> Result<bool, String> {
     if let Ok(fs_metadata) = maildir_meta.path().metadata() {
         if fs_metadata.len() != cache_meta.size() as u64 {
@@ -59,6 +62,7 @@ fn meta_equal(maildir_meta: &MailEntry, cache_meta: &MessageMeta) -> Result<bool
 }
 
 impl Maildir {
+    /// Make a new Maildir for the given root directory, account, and mailbox.
     pub fn new(root: &str, account: &str, mailbox: &str) -> Result<Maildir, String> {
         let mut maildirpath = PathBuf::from(root);
         maildirpath.push(account);
@@ -70,10 +74,12 @@ impl Maildir {
         Ok(Maildir { maildir })
     }
 
+    /// Get the path to the Maildir
     pub fn path(&self) -> PathBuf {
         self.maildir.path().to_path_buf()
     }
 
+    /// Save a message in the maildir. On success, returns the ID of the new message.
     pub fn save_message(&mut self, body: &[u8], flags: &str) -> Result<String, String> {
         if flags.contains('S') {
             self.maildir.store_cur_with_flags(body, flags)
@@ -83,27 +89,30 @@ impl Maildir {
         .map_err(|e| format!("Message store failed: {}", e))
     }
 
+    /// Move a message ID to the cur Maildir directory and set its flags.
     pub fn move_message_to_cur(&mut self, id: &str, flags: &str) -> Result<(), String> {
         self.maildir
             .move_new_to_cur_with_flags(id, flags)
             .map_err(|e| format!("Move message to cur failed for id{}: {}", id, e))
     }
 
+    /// Set the flags for the given message ID.
     pub fn set_flags_for_message(&mut self, id: &str, flags: &str) -> Result<(), String> {
         self.maildir
             .set_flags(id, flags)
             .map_err(|e| format!("Setting flags failed for id {}: {}", id, e))
     }
 
+    /// Delete a message ID.
     pub fn delete_message(&self, id: &str) -> Result<(), String> {
         self.maildir
             .delete(id)
             .map_err(|e| format!("Maildir delete failed for ID {}: {}", id, e))
     }
 
-    // For the given cached entries map (id -> meta), remove entries
-    // that have not changed, and return a vector of new ids not present
-    // in the cache.
+    /// For the given cached entries map (id -> meta), remove entries
+    /// that have not changed, and return a vector of new ids not present
+    /// in the cache.
     pub fn get_updates(
         &self,
         cache: &mut HashMap<String, MessageMeta>,
@@ -130,6 +139,7 @@ impl Maildir {
         Ok((new, changed))
     }
 
+    /// Determine if a given message ID is in the Maildir 'new' folder.
     pub fn message_is_in_new(&self, id: &str) -> Result<bool, String> {
         for mailentry_res in self.maildir.list_new() {
             let mailentry = mailentry_res.map_err(|e| e.to_string())?;
@@ -140,6 +150,7 @@ impl Maildir {
         Ok(false)
     }
 
+    /// Fetch the Maildir meta for the given message ID.
     pub fn get_id(&self, id: &str) -> Result<IdResult, String> {
         if let Some(entry) = self.maildir.find(id) {
             let meta = entry.path().metadata().map_err(|e| e.to_string())?;
