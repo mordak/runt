@@ -439,16 +439,14 @@ impl SyncDir {
             self.log("Done");
 
             if let Err(e) = res {
-                self.elog(&format!("Error syncing: {}", e));
-                break;
+                break Err(format!("Error syncing: {}", e));
             };
 
             if self.idlethread.is_none() {
                 match self.idle() {
                     Ok(handle) => self.idlethread = Some(handle),
                     Err(why) => {
-                        self.elog(&format!("Error in IDLE: {}", why));
-                        break;
+                        break Err(format!("Error in IDLE: {}", why));
                     }
                 }
             }
@@ -457,14 +455,13 @@ impl SyncDir {
                 match self.fswait() {
                     Ok(handle) => self.fsthread = Some(handle),
                     Err(why) => {
-                        self.elog(&format!("Error in watching file system: {}", why));
-                        break;
+                        break Err(format!("Error in watching file system: {}", why));
                     }
                 }
             }
 
             match self.receiver.recv() {
-                Ok(SyncMessage::Exit) => break,
+                Ok(SyncMessage::Exit) => break Ok(()),
                 Ok(SyncMessage::ImapChanged) => {
                     self.log("IMAP changed");
                     if self.idlethread.is_some() {
@@ -481,12 +478,10 @@ impl SyncDir {
                     self.elog(&format!("Maildir Error: {}", msg));
                 }
                 Err(why) => {
-                    self.log(&format!("Error in recv(): {}", why));
-                    break;
+                    break Err(format!("Error in recv(): {}", why));
                 }
             }
         }
-        Ok(())
     }
 
     /// Public interface for the sync engine. Runs a sync loop until it exits.
