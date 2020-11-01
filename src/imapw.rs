@@ -48,19 +48,6 @@ impl<'a> From<&'a Fetch> for FetchResult<'a> {
     }
 }
 
-fn flag2string(flag: &Flag) -> Option<String> {
-    match flag {
-        Flag::Seen => Some("\\Seen".to_string()),
-        Flag::Answered => Some("\\Answered".to_string()),
-        Flag::Flagged => Some("\\Flagged".to_string()),
-        Flag::Deleted => Some("\\Deleted".to_string()),
-        Flag::Draft => Some("\\Draft".to_string()),
-        Flag::Recent => Some("\\Recent".to_string()),
-        Flag::Custom(s) => Some(s.to_string()),
-        _ => None,
-    }
-}
-
 pub struct Imap {
     session: Session<TlsStream<TcpStream>>,
     mailbox: Option<String>,
