@@ -193,19 +193,18 @@ impl Imap {
         Ok(())
     }
 
-    pub fn append(&mut self, body: &[u8], flags: Option<Vec<String>>) -> Result<(), String> {
+    pub fn append(&mut self, body: &[u8], flags: &[Flag]) -> Result<(), String> {
         if self.mailbox.is_none() {
             return Err("No mailbox selected".to_string());
         }
-        let flags_str = if let Some(flags) = flags {
-            format!("({})", flags.join(" "))
-        } else {
-            "()".to_string()
-        };
 
-        self.session
-            .append_with_flags(self.mailbox.as_ref().unwrap(), body, flags_str)
-            .map_err(|e| e.to_string())
+        self.debug(true);
+        let r = self.session
+            .append_with_flags(self.mailbox.as_ref().unwrap(), body, flags)
+            .map_err(|e| e.to_string());
+        self.debug(false);
+        r
+
     }
 
     pub fn replace_uid(&mut self, uid: u32, body: &[u8]) -> Result<(), String> {
@@ -226,32 +225,23 @@ impl Imap {
             return Err(format!("UID {} not found on server", uid));
         }
 
-        // Map flags into strings. Recent is not allowed in APPEND
-        let flags: Vec<String> = uidres
-            .unwrap()
-            .flags()
-            .iter()
-            .filter(|e| **e != Flag::Recent)
-            .map(|flag| flag2string(flag))
-            .filter(|flag| flag.is_some())
-            .map(|flag| flag.unwrap())
-            .collect();
-
         // Append first so if it fails we don't delete the original
-        self.append(body, Some(flags))?;
+        self.append(body, uidres.unwrap().flags())?;
         self.delete_uid(uid)
     }
 
-    pub fn add_flags_for_uid(&mut self, uid: u32, flags: &[String]) -> Result<(), String> {
+    pub fn add_flags_for_uid(&mut self, uid: u32, flags: &[Flag]) -> Result<(), String> {
+        let flagstr = flags.iter().map(|f| f.to_string()).collect::<Vec<String>>().join(" ");
         self.session
-            .uid_store(format!("{}", uid), format!("+FLAGS ({})", flags.join(" ")))
+            .uid_store(format!("{}", uid), format!("+FLAGS ({})", flagstr))
             .map_err(|e| format!("STORE UID {} +FLAGS failed: {}", uid, e))
             .map(|_| ())
     }
 
-    pub fn remove_flags_for_uid(&mut self, uid: u32, flags: &[String]) -> Result<(), String> {
+    pub fn remove_flags_for_uid(&mut self, uid: u32, flags: &[Flag]) -> Result<(), String> {
+        let flagstr = flags.iter().map(|f| f.to_string()).collect::<Vec<String>>().join(" ");
         self.session
-            .uid_store(format!("{}", uid), format!("-FLAGS ({})", flags.join(" ")))
+            .uid_store(format!("{}", uid), format!("-FLAGS ({})", flagstr))
             .map_err(|e| format!("STORE UID {} -FLAGS failed: {}", uid, e))
             .map(|_| ())
     }

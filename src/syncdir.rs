@@ -396,10 +396,15 @@ impl SyncDir {
         // but not in the cache. These need to be sent to the server.
         for id in new {
             let mail_v = self.maildir.get_id(&id)?;
-            let flags = SyncFlags::from(mail_v.flags()).as_imap_flags();
+            let sflags = SyncFlags::from(mail_v.flags());
+            let flags = if let Some(f) = sflags.as_imap_flags() {
+                f
+            } else {
+                Vec::new()
+            };
 
             // Push to the server first, then delete the local copy
-            imap.append(&fs::read(mail_v.path()).map_err(|e| e.to_string())?, flags)?;
+            imap.append(&fs::read(mail_v.path()).map_err(|e| e.to_string())?, &flags)?;
             // These will come back to us on the idle loop,
             // at which time they will get cache entries.
             self.maildir.delete_message(&id)?;
