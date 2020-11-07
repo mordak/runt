@@ -155,7 +155,6 @@ impl Cache {
     }
 
     pub fn delete_maildir_state(&self) -> Result<(), String> {
-        // FIXME: Clear all State and start over
-        Ok(())
+        todo!();
     }
 }
