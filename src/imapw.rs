@@ -225,7 +225,11 @@ impl Imap {
     }
 
     pub fn add_flags_for_uid(&mut self, uid: u32, flags: &[Flag]) -> Result<(), String> {
-        let flagstr = flags.iter().map(|f| f.to_string()).collect::<Vec<String>>().join(" ");
+        let flagstr = flags
+            .iter()
+            .map(|f| f.to_string())
+            .collect::<Vec<String>>()
+            .join(" ");
         self.session
             .uid_store(format!("{}", uid), format!("+FLAGS ({})", flagstr))
             .map_err(|e| format!("STORE UID {} +FLAGS failed: {}", uid, e))

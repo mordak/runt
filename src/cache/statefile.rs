@@ -77,6 +77,13 @@ impl StateFile {
         self.save()
     }
 
+    /*
+    pub fn set_highest_mod_seq(&mut self, seq: u64) -> Result<(), String> {
+        self.state.highest_mod_seq = seq;
+        self.save()
+    }
+    */
+
     pub fn save(&self) -> Result<(), String> {
         std::fs::File::create(&self.path)
             .and_then(|mut f| {

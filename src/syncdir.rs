@@ -292,6 +292,7 @@ impl SyncDir {
         Ok(vanished)
     }
 
+    /*
     /// Compare the given IMAP FETCH results with the cache, and remove any entries
     /// from the cache that are no longer on the server.
     ///
@@ -336,7 +337,9 @@ impl SyncDir {
             }
         })
     }
+    */
 
+    /*
     /// Perform a sync from IMAP to the cache. This updates existing cache entries,
     /// removes messages deleted on the server, and downloads new messages.
     ///

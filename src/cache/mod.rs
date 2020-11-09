@@ -72,9 +72,11 @@ impl Cache {
         )
     }
 
+    /*
     pub fn get_last_seen_uid(&self) -> u32 {
         self.state.last_seen_uid()
     }
+    */
 
     pub fn get_highest_mod_seq(&self) -> u64 {
         self.state.highest_mod_seq()
@@ -82,9 +84,8 @@ impl Cache {
 
     /*
     pub fn set_highest_mod_seq(&mut self, seq: u64) -> Result<(), String> {
-        if seq > self.state.highest_mod_seq {
-            self.state.highest_mod_seq = seq;
-            self.state.save(&self.statefile)
+        if seq > self.state.highest_mod_seq() {
+            self.state.set_highest_mod_seq(seq)
         } else {
             Ok(())
         }
