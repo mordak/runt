@@ -192,12 +192,10 @@ impl Imap {
             return Err("No mailbox selected".to_string());
         }
 
-        self.debug(true);
         let r = self
             .session
             .append_with_flags(self.mailbox.as_ref().unwrap(), body, flags)
             .map_err(|e| e.to_string());
-        self.debug(false);
         r
     }
 
