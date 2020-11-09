@@ -152,14 +152,21 @@ impl SyncDir {
     /// next sync. This might annoy the user, but errs on the side of caution
     /// when things go wrong.
     fn delete_message_from_maildir(&self, uid: u32) -> Result<(), String> {
-        let meta = self.cache.get_uid(uid)?;
         // It is ok if we can't find the message in our maildir, it
         // may be deleted from both sides.
-        self.log(&format!("Deleting UID {} from maildir", uid));
-        if let Err(why) = self.maildir.delete_message(meta.id()) {
-            self.elog(&format!("Error deleting UID {}: {}", uid, why));
+        match self.cache.get_uid(uid) {
+            Ok(meta) => {
+                self.log(&format!("Deleting UID {} from maildir", uid));
+                if let Err(why) = self.maildir.delete_message(meta.id()) {
+                    self.elog(&format!("Error deleting UID {}: {}", uid, why));
+                }
+                self.cache.delete_uid(uid)
+            }
+            Err(e) => match e.downcast_ref::<rusqlite::Error>() {
+                Some(rusqlite::Error::QueryReturnedNoRows) => Ok(()),
+                _ => Err(e.to_string()),
+            },
         }
-        self.cache.delete_uid(uid)
     }
 
     /// Fetch the given UID from IMAP and save it in the Maildir.

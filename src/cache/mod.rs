@@ -103,7 +103,7 @@ impl Cache {
         self.state.update_maildir()
     }
 
-    pub fn get_uid(&self, uid: u32) -> Result<MessageMeta, String> {
+    pub fn get_uid(&self, uid: u32) -> anyhow::Result<MessageMeta> {
         self.db.get_uid(uid)
     }
 
@@ -144,17 +144,16 @@ impl Cache {
 
     pub fn update(&mut self, uidres: &UidResult) -> Result<MessageMeta, String> {
         let uid = uidres.uid();
-        self.get_uid(uid).and_then(|mut meta| {
-            if !meta.is_equal(uidres) {
-                meta.update(uidres);
-                self.db.update(&meta).map(|_| meta)
-            } else {
-                Ok(meta)
+        match self.get_uid(uid) {
+            Ok(mut meta) => {
+                if !meta.is_equal(uidres) {
+                    meta.update(uidres);
+                    self.db.update(&meta).map(|_| meta)
+                } else {
+                    Ok(meta)
+                }
             }
-        })
-    }
-
-    pub fn delete_maildir_state(&self) -> Result<(), String> {
-        todo!();
+            Err(e) => Err(e.to_string()),
+        }
     }
 }

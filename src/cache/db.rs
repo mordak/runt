@@ -148,17 +148,15 @@ impl Db {
         Ok(h)
     }
 
-    pub fn get_uid(&self, uid: u32) -> Result<MessageMeta, String> {
-        let conn = Connection::open(&self.dbpath).map_err(|e| format!("Open DB: {}", e))?;
+    pub fn get_uid(&self, uid: u32) -> anyhow::Result<MessageMeta> {
+        let conn = Connection::open(&self.dbpath)?;
 
-        let mut stmt = conn
-            .prepare(
-                "SELECT uid, size, internal_date_millis, flags, id
+        let mut stmt = conn.prepare(
+            "SELECT uid, size, internal_date_millis, flags, id
                       FROM v1 WHERE uid = (?)",
-            )
-            .map_err(|e| format!("SELECT: {}", e))?;
+        )?;
 
-        stmt.query_row(params![uid], |r| {
+        let res = stmt.query_row(params![uid], |r| {
             Ok(MessageMeta::from_fields(
                 r.get_unwrap(0),
                 r.get_unwrap(1),
@@ -166,8 +164,8 @@ impl Db {
                 r.get_unwrap(3),
                 r.get_unwrap(4),
             ))
-        })
-        .map_err(|e| format!("query_row: {}", e))
+        })?;
+        Ok(res)
     }
 
     pub fn get_id(&self, id: &str) -> Result<MessageMeta, String> {
