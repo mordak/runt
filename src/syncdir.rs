@@ -4,7 +4,7 @@ use cache::MessageMeta;
 use cache::SyncFlags;
 use chrono::prelude::*;
 use config::Account;
-use imap::types::{Fetch, Mailbox, Uid, ZeroCopy};
+use imap::types::{Fetch, Mailbox, Uid, UnsolicitedResponse, ZeroCopy};
 use imapw::{FetchResult, Imap, UidResult};
 use maildirw::Maildir;
 use notify::{watcher, RecursiveMode, Watcher};
@@ -261,6 +261,37 @@ impl SyncDir {
         }
     }
 
+    /// Delete messages by UID from the cache and from the maildir.
+    fn remove_uids_from_cache(&mut self, uids: &[u32]) -> Result<(), String> {
+        for uid in uids {
+            // Errors deleting from local usually mean the uid was not found
+            // which can happen under some dual-edit conditions or when
+            // we are told about a deleted message that we never downloded.
+            if let Err(e) = self.delete_message_from_maildir(*uid) {
+                self.elog(&format!("Error deleting UID {}: {}", uid, e));
+            }
+        }
+        Ok(())
+    }
+
+    /// Check for VANISHED messages in the unsolicited responses channel
+    fn check_unsolicited_for_vanished(
+        &mut self,
+        imap: &mut Imap,
+    ) -> Result<Vec<std::ops::RangeInclusive<u32>>, String> {
+        let mut vanished = Vec::new();
+        imap.for_each_unsolicited_response(|u| match u {
+            UnsolicitedResponse::Vanished {
+                earlier: _,
+                mut uids,
+            } => {
+                vanished.append(&mut uids);
+            }
+            _ => (),
+        });
+        Ok(vanished)
+    }
+
     /// Compare the given IMAP FETCH results with the cache, and remove any entries
     /// from the cache that are no longer on the server.
     ///
@@ -323,20 +354,72 @@ impl SyncDir {
         };
 
         // Updating existing cache entries
-        imap.fetch_uids(1, end).and_then(|zc_vec_fetch| {
+        imap.fetch_uids(1, end, None).and_then(|zc_vec_fetch| {
             if !self.cache.is_valid(mailbox) {
                 // We have a new state, so delete the existing one
-                self.cache.delete_maildir_state()?;
+                self.delete_imap_cache()?;
             }
             self.cache_uids_from_imap(imap, &zc_vec_fetch)?;
             self.remove_imap_deleted_messages(&zc_vec_fetch)
         })?;
 
         // Fetch new messgaes
-        imap.fetch_uids(last_seen_uid + 1, None)
+        imap.fetch_uids(last_seen_uid + 1, None, None)
             .and_then(|zc_vec_fetch| self.cache_uids_from_imap(imap, &zc_vec_fetch))?;
 
         self.cache.update_imap_state(mailbox)
+    }
+    */
+
+    /// Use QRESYNC to update the cache. This updates existing cache entries,
+    /// removes deleted items on the server and downloads new messages.
+    ///
+    /// This is the main Server -> Local routine for UIDs. After this completes
+    /// anything on the server will be in the cache db and in the Maildir.
+    fn quick_sync_cache_from_imap(
+        &mut self,
+        imap: &mut Imap,
+        mailbox: &Mailbox,
+    ) -> Result<(), String> {
+        let modseq = if self.cache.is_valid(mailbox) {
+            Some(self.cache.get_highest_mod_seq())
+        } else {
+            self.delete_imap_cache()?;
+            None
+        };
+
+        imap.fetch_uids(1, None, modseq)
+            .and_then(|zc_vec_fetch| self.cache_uids_from_imap(imap, &zc_vec_fetch))?;
+
+        self.check_unsolicited_for_vanished(imap)
+            .and_then(|vanished| {
+                for range in vanished {
+                    for uid in range {
+                        if let Err(e) = self.delete_message_from_maildir(uid) {
+                            self.elog(&format!("Error deleting UID {}: {}", uid, e));
+                        }
+                    }
+                }
+                Ok(())
+            })?;
+
+        self.cache.update_imap_state(mailbox)
+    }
+
+    /// Delete the cache of the imap state.
+    ///
+    /// This is used when we have a cache validation failure, such as when
+    /// the UIDVALIDITY does not match anymore.
+    fn delete_imap_cache(&mut self) -> Result<(), String> {
+        self.log(&format!("Deleting Cache of all IMAP messages"));
+        self.remove_uids_from_cache(
+            &self
+                .cache
+                .get_known_uids()?
+                .iter()
+                .cloned()
+                .collect::<Vec<u32>>(),
+        )
     }
 
     /// Sync the Maildir with the cache. Locally deleted messages are deleted from
@@ -438,16 +521,21 @@ impl SyncDir {
         loop {
             let mut imap = Imap::new(&self.config)?;
             //imap.debug(true);
-            // FIXME: HIGHESTMODSEQ support, will trigger VANISHED responses
-            //imap.enable_qresync().unwrap();
+            imap.enable_qresync().unwrap();
             let mailbox = imap.select_mailbox(&self.mailbox.as_str())?;
-            let last_seen_uid = self.cache.get_last_seen_uid();
+            //imap.debug(false);
 
             self.log("Synchronizing..");
+            let res = self
+                .quick_sync_cache_from_imap(&mut imap, &mailbox)
+                .and_then(|_| self.sync_cache_from_maildir(&mut imap))
+                .and_then(|_| imap.logout());
+            /*
             let res = self
                 .sync_cache_from_imap(&mut imap, last_seen_uid, &mailbox)
                 .and_then(|_| self.sync_cache_from_maildir(&mut imap))
                 .and_then(|_| imap.logout());
+            */
             self.log("Done");
 
             if let Err(e) = res {

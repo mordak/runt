@@ -1,5 +1,5 @@
 use config::Account;
-use imap::types::{Fetch, Flag, Mailbox, Name, Uid, ZeroCopy};
+use imap::types::{Fetch, Flag, Mailbox, Name, Uid, UnsolicitedResponse, ZeroCopy};
 use imap::Client;
 use imap::Session;
 use imap_proto::types::Capability;
@@ -134,6 +134,7 @@ impl Imap {
         &mut self,
         first: u32,
         last: Option<u32>,
+        changedsince: Option<u64>,
     ) -> Result<ZeroCopy<Vec<Fetch>>, String> {
         let range = match last {
             None => format!("{}:*", first),
@@ -141,18 +142,24 @@ impl Imap {
             _ => return Err(format!("Invalid range {}:{}", first, last.unwrap())),
         };
 
+        let qresync = match changedsince {
+            None => "".to_string(),
+            Some(n) => format!(" (CHANGEDSINCE {} VANISHED)", n),
+        };
+
         self.session
-            .uid_fetch(range, "(UID RFC822.SIZE INTERNALDATE FLAGS)")
+            .uid_fetch(
+                range,
+                format!("(UID RFC822.SIZE INTERNALDATE FLAGS){}", qresync),
+            )
             .map_err(|e| format!("UID FETCH failed: {}", e))
     }
 
-    /*
     pub fn enable_qresync(&mut self) -> Result<(), String> {
         self.session
             .run_command_and_check_ok("ENABLE QRESYNC")
             .map_err(|e| format!("ENABLE QRESYNC Error: {}", e))
     }
-    */
 
     pub fn select_mailbox(&mut self, mailbox: &str) -> Result<Mailbox, String> {
         self.session
@@ -186,12 +193,12 @@ impl Imap {
         }
 
         self.debug(true);
-        let r = self.session
+        let r = self
+            .session
             .append_with_flags(self.mailbox.as_ref().unwrap(), body, flags)
             .map_err(|e| e.to_string());
         self.debug(false);
         r
-
     }
 
     pub fn replace_uid(&mut self, uid: u32, body: &[u8]) -> Result<(), String> {
@@ -226,10 +233,23 @@ impl Imap {
     }
 
     pub fn remove_flags_for_uid(&mut self, uid: u32, flags: &[Flag]) -> Result<(), String> {
-        let flagstr = flags.iter().map(|f| f.to_string()).collect::<Vec<String>>().join(" ");
+        let flagstr = flags
+            .iter()
+            .map(|f| f.to_string())
+            .collect::<Vec<String>>()
+            .join(" ");
         self.session
             .uid_store(format!("{}", uid), format!("-FLAGS ({})", flagstr))
             .map_err(|e| format!("STORE UID {} -FLAGS failed: {}", uid, e))
             .map(|_| ())
+    }
+
+    pub fn for_each_unsolicited_response<F>(&mut self, mut f: F)
+    where
+        F: FnMut(UnsolicitedResponse),
+    {
+        while let Ok(u) = self.session.unsolicited_responses.try_recv() {
+            f(u)
+        }
     }
 }

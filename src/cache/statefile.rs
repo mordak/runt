@@ -108,9 +108,8 @@ impl StateFile {
     pub fn last_seen_uid(&self) -> u32 {
         self.state.last_seen_uid
     }
-    /*
+
     pub fn highest_mod_seq(&self) -> u64 {
         self.state.highest_mod_seq
     }
-    */
 }
