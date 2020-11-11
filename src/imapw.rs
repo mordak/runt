@@ -165,9 +165,9 @@ impl Imap {
         self.session
             .select(mailbox)
             .map_err(|e| format!("SELECT {} failed: {}", mailbox, e))
-            .and_then(|mbox| {
+            .map(|mbox| {
                 self.mailbox = Some(mailbox.to_string());
-                Ok(mbox)
+                mbox
             })
     }
 

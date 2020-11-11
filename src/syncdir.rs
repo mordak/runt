@@ -280,14 +280,14 @@ impl SyncDir {
         imap: &mut Imap,
     ) -> Result<Vec<std::ops::RangeInclusive<u32>>, String> {
         let mut vanished = Vec::new();
-        imap.for_each_unsolicited_response(|u| match u {
-            UnsolicitedResponse::Vanished {
+        imap.for_each_unsolicited_response(|u| {
+            if let UnsolicitedResponse::Vanished {
                 earlier: _,
                 mut uids,
-            } => {
+            } = u
+            {
                 vanished.append(&mut uids);
             }
-            _ => (),
         });
         Ok(vanished)
     }
@@ -394,17 +394,15 @@ impl SyncDir {
         imap.fetch_uids(1, None, modseq)
             .and_then(|zc_vec_fetch| self.cache_uids_from_imap(imap, &zc_vec_fetch))?;
 
-        self.check_unsolicited_for_vanished(imap)
-            .and_then(|vanished| {
-                for range in vanished {
-                    for uid in range {
-                        if let Err(e) = self.delete_message_from_maildir(uid) {
-                            self.elog(&format!("Error deleting UID {}: {}", uid, e));
-                        }
+        self.check_unsolicited_for_vanished(imap).map(|vanished| {
+            for range in vanished {
+                for uid in range {
+                    if let Err(e) = self.delete_message_from_maildir(uid) {
+                        self.elog(&format!("Error deleting UID {}: {}", uid, e));
                     }
                 }
-                Ok(())
-            })?;
+            }
+        })?;
 
         self.cache.update_imap_state(mailbox)
     }
@@ -414,7 +412,7 @@ impl SyncDir {
     /// This is used when we have a cache validation failure, such as when
     /// the UIDVALIDITY does not match anymore.
     fn delete_imap_cache(&mut self) -> Result<(), String> {
-        self.log(&format!("Deleting Cache of all IMAP messages"));
+        self.log("Deleting Cache of all IMAP messages");
         self.remove_uids_from_cache(
             &self
                 .cache

@@ -46,11 +46,9 @@ impl StateFile {
         std::fs::read_to_string(path)
             .map_err(|e| format!("{}", e))
             .and_then(|buf| serde_json::from_str(&buf).map_err(|e| format!("{}", e)))
-            .and_then(|state| {
-                Ok(StateFile {
-                    path: path.to_path_buf(),
-                    state,
-                })
+            .map(|state| StateFile {
+                path: path.to_path_buf(),
+                state,
             })
     }
 
