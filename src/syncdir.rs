@@ -11,7 +11,7 @@ use notify::{watcher, RecursiveMode, Watcher};
 use std::collections::HashSet;
 use std::fs;
 use std::ops::Deref;
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{channel, Receiver, RecvError, Sender, TryRecvError};
 use std::thread::{sleep, spawn, JoinHandle};
 use std::time::Duration;
 use std::vec::Vec;
@@ -563,25 +563,38 @@ impl SyncDir {
                 }
             }
 
-            match self.receiver.recv() {
-                Ok(SyncMessage::Exit) => break Ok(()),
-                Ok(SyncMessage::ImapChanged) => {
-                    self.log("IMAP changed");
-                    if self.idlethread.is_some() {
-                        self.idlethread.take().unwrap().join().ok();
+            // Block until something happens
+            let mut message = self.receiver.recv();
+
+            // Then loop over all pending messages.
+            // We do this because sometimes we get multiple notifications
+            // from the file system that cause unnecessary synchronization
+            loop {
+                match message {
+                    Ok(SyncMessage::Exit) => return Ok(()),
+                    Ok(SyncMessage::ImapChanged) => {
+                        self.log("IMAP changed");
+                        if self.idlethread.is_some() {
+                            self.idlethread.take().unwrap().join().ok();
+                        }
+                    }
+                    Ok(SyncMessage::MaildirChanged) => {
+                        self.log("Maildir changed");
+                    }
+                    Ok(SyncMessage::ImapError(msg)) => {
+                        self.elog(&format!("IMAP Error: {}", msg));
+                    }
+                    Ok(SyncMessage::MaildirError(msg)) => {
+                        self.elog(&format!("Maildir Error: {}", msg));
+                    }
+                    Err(why) => {
+                        return Err(format!("Error in recv(): {}", why));
                     }
                 }
-                Ok(SyncMessage::MaildirChanged) => {
-                    self.log("Maildir changed");
-                }
-                Ok(SyncMessage::ImapError(msg)) => {
-                    self.elog(&format!("IMAP Error: {}", msg));
-                }
-                Ok(SyncMessage::MaildirError(msg)) => {
-                    self.elog(&format!("Maildir Error: {}", msg));
-                }
-                Err(why) => {
-                    break Err(format!("Error in recv(): {}", why));
+
+                match self.receiver.try_recv() {
+                    Err(TryRecvError::Empty) => break,
+                    any => message = any.map_err(|_| RecvError),
                 }
             }
         }
