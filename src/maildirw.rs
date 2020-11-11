@@ -1,4 +1,4 @@
-use cache::MessageMeta;
+use crate::cache::MessageMeta;
 use maildir::MailEntry;
 use maildir::Maildir as SubMaildir;
 use std::collections::HashMap;

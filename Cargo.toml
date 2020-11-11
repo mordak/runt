@@ -2,6 +2,15 @@
 name = "runt"
 version = "0.2.0"
 authors = ["Todd Mortimer <todd@opennet.ca>"]
+edition = "2018"
+description = "IMAP / Maildir synchronization program"
+repository = "https://github.com/mordak/runt"
+keywords = ["email", "imap", "maildir"]
+categories = ["command-line-utilities", "email"]
+license = "MIT"
+
+[badges]
+maintenance = { status = "actively-developed" }
 
 [dependencies]
 anyhow = "1.0.34"

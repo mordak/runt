@@ -1,8 +1,7 @@
 use imap::types::{Flag, Uid};
 
-use cache::syncflags::FlagValue;
-use cache::syncflags::SyncFlags;
-use imapw::UidResult;
+use super::syncflags::{FlagValue, SyncFlags};
+use crate::imapw::UidResult;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct MessageMeta {

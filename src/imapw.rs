@@ -1,4 +1,4 @@
-use config::Account;
+use crate::config::Account;
 use imap::types::{Fetch, Flag, Mailbox, Name, Uid, UnsolicitedResponse, ZeroCopy};
 use imap::Client;
 use imap::Session;

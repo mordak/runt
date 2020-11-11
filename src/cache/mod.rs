@@ -3,16 +3,15 @@ mod messagemeta;
 mod statefile;
 mod syncflags;
 
-pub use self::syncflags::SyncFlags;
-use config::Config;
-use imap::types::{Fetch, Flag, Mailbox};
-use imapw::UidResult;
-use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
-
 use self::db::Db;
 pub use self::messagemeta::MessageMeta;
 use self::statefile::StateFile;
+pub use self::syncflags::SyncFlags;
+use crate::config::Config;
+use crate::imapw::UidResult;
+use imap::types::{Fetch, Flag, Mailbox};
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 
 // FIXME: Move this to imapw?
 /// Convert imap flags to maildir flags
