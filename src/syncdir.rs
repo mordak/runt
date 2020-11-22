@@ -61,8 +61,9 @@ impl SyncDir {
     /// Log a message to the console
     fn log(&self, msg: &str) {
         println!(
-            "{} {}: {}",
-            Local::now().format("%Y-%m-%d %H:%M:%S.%f"),
+            "{} {}/{}: {}",
+            Local::now().format("%Y-%m-%d %H:%M:%S"),
+            self.config.account,
             self.mailbox,
             msg
         );
