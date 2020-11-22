@@ -95,6 +95,11 @@ impl SyncDir {
         Ok(handle)
     }
 
+    /// Check if we want to IDLE this mailbox
+    fn should_idle(&self) -> bool {
+        self.config.is_mailbox_idled(&self.mailbox)
+    }
+
     /// Spawn a thread on this Maildir and wait for changes. On change,
     /// a message is sent to the parent the main sync thread.
     fn fswait(&self) -> Result<JoinHandle<()>, String> {
@@ -543,6 +548,11 @@ impl SyncDir {
             if let Err(e) = res {
                 break Err(format!("Error syncing: {}", e));
             };
+
+            // If we are not IDLEing, then we're done
+            if !self.should_idle() {
+                break Ok(());
+            }
 
             if self.idlethread.is_none() {
                 match self.idle() {

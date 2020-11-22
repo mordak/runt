@@ -16,6 +16,7 @@ pub struct Account {
     pub password_command: Option<String>,
     pub password: Option<String>,
     pub exclude: Option<Vec<String>>,
+    pub idle: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -73,11 +74,24 @@ impl Account {
         None
     }
 
+    /// Is this mailbox excluded from synchronization?
     pub fn is_mailbox_excluded(&self, name: &str) -> bool {
         if let Some(exclude) = &self.exclude {
             exclude.contains(&name.to_string())
         } else {
             false
+        }
+    }
+
+    /// Is this mailbox one we want to IDLE on?
+    /// If the account has a `idle` member, then only mailboxes
+    /// in that list are IDLEd. Otherwise everything that is not
+    /// `exclude`d is IDLEd.
+    pub fn is_mailbox_idled(&self, name: &str) -> bool {
+        if let Some(idle) = &self.idle {
+            idle.contains(&name.to_string())
+        } else {
+            true
         }
     }
 }
