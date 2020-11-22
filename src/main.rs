@@ -48,6 +48,7 @@ fn main() {
                     if !mailbox
                         .attributes()
                         .contains(&imap::types::NameAttribute::NoSelect)
+                        && !config.is_mailbox_excluded(mailbox.name())
                     {
                         // select it and sync
                         match SyncDir::new(&config, mailbox.name().to_string()) {

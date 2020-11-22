@@ -72,4 +72,12 @@ impl Account {
         }
         None
     }
+
+    pub fn is_mailbox_excluded(&self, name: &str) -> bool {
+        if let Some(exclude) = &self.exclude {
+            exclude.contains(&name.to_string())
+        } else {
+            false
+        }
+    }
 }
