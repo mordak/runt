@@ -292,7 +292,6 @@ impl SyncDir {
         Ok(vanished)
     }
 
-    /*
     /// Compare the given IMAP FETCH results with the cache, and remove any entries
     /// from the cache that are no longer on the server.
     ///
@@ -337,20 +336,18 @@ impl SyncDir {
             }
         })
     }
-    */
 
-    /*
     /// Perform a sync from IMAP to the cache. This updates existing cache entries,
     /// removes messages deleted on the server, and downloads new messages.
     ///
     /// This is the main Server -> Local routine for UIDs. After this completes anything
     /// on the server will be in the cache db and in the Maildir.
-    fn sync_cache_from_imap(
+    fn slow_sync_cache_from_imap(
         &mut self,
         imap: &mut Imap,
-        last_seen_uid: u32,
         mailbox: &Mailbox,
     ) -> Result<(), String> {
+        let last_seen_uid = self.cache.get_last_seen_uid();
         let end: Option<u32> = match last_seen_uid {
             0 => None,
             x => Some(x),
@@ -372,7 +369,6 @@ impl SyncDir {
 
         self.cache.update_imap_state(mailbox)
     }
-    */
 
     /// Use QRESYNC to update the cache. This updates existing cache entries,
     /// removes deleted items on the server and downloads new messages.
@@ -522,21 +518,26 @@ impl SyncDir {
         loop {
             let mut imap = Imap::new(&self.config)?;
             //imap.debug(true);
-            imap.enable_qresync().unwrap();
+            if imap.can_qresync() {
+                imap.enable_qresync().unwrap();
+            }
             let mailbox = imap.select_mailbox(&self.mailbox.as_str())?;
             //imap.debug(false);
 
-            self.log("Synchronizing..");
-            let res = self
-                .quick_sync_cache_from_imap(&mut imap, &mailbox)
-                .and_then(|_| self.sync_cache_from_maildir(&mut imap))
-                .and_then(|_| imap.logout());
-            /*
-            let res = self
-                .sync_cache_from_imap(&mut imap, last_seen_uid, &mailbox)
-                .and_then(|_| self.sync_cache_from_maildir(&mut imap))
-                .and_then(|_| imap.logout());
-            */
+            self.log(&format!(
+                "Synchronizing ({})",
+                if imap.can_qresync() { "quick" } else { "slow" }
+            ));
+            let res = if imap.can_qresync() {
+                self.quick_sync_cache_from_imap(&mut imap, &mailbox)
+                    .and_then(|_| self.sync_cache_from_maildir(&mut imap))
+                    .and_then(|_| imap.logout())
+            } else {
+                self.slow_sync_cache_from_imap(&mut imap, &mailbox)
+                    .and_then(|_| self.sync_cache_from_maildir(&mut imap))
+                    .and_then(|_| imap.logout())
+            };
+
             self.log("Done");
 
             if let Err(e) = res {

@@ -34,5 +34,8 @@ and IMAP server in sync.
 
 # Requirements
 
-The server must support the `UIDPLUS`, `IDLE`, `ENABLE`, and `QRESYNC` capabilities.
+The server must support the `UIDPLUS`, `IDLE` and `ENABLE` capabilities.
 If one of these is missing, runt will exit with an error.
+
+If the server supports the `QRESYNC` capability, then it will be used to synchronize
+quickly. Dovecot supports this capability, but Gmail does not.

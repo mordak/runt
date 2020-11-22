@@ -71,11 +71,9 @@ impl Cache {
         )
     }
 
-    /*
     pub fn get_last_seen_uid(&self) -> u32 {
         self.state.last_seen_uid()
     }
-    */
 
     pub fn get_highest_mod_seq(&self) -> u64 {
         self.state.highest_mod_seq()

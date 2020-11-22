@@ -51,6 +51,7 @@ impl<'a> From<&'a Fetch> for FetchResult<'a> {
 pub struct Imap {
     session: Session<TlsStream<TcpStream>>,
     mailbox: Option<String>,
+    qresync: bool,
 }
 
 impl Imap {
@@ -63,17 +64,26 @@ impl Imap {
         let capabilities = session
             .capabilities()
             .map_err(|e| format!("CAPABILITIES Error: {}", e))?;
-        if !capabilities.deref().has(&Capability::Atom("QRESYNC"))
-            || !capabilities.deref().has(&Capability::Atom("ENABLE"))
-            || !capabilities.deref().has(&Capability::Atom("UIDPLUS"))
-            || !capabilities.deref().has(&Capability::Atom("IDLE"))
-        {
-            return Err("Missing CAPABILITY support".to_string());
+
+        let mut missing = Vec::new();
+        if !capabilities.deref().has(&Capability::Atom("ENABLE")) {
+            missing.push("ENABLE");
+        }
+        if !capabilities.deref().has(&Capability::Atom("UIDPLUS")) {
+            missing.push("UIDPLUS");
+        }
+        if !capabilities.deref().has(&Capability::Atom("IDLE")) {
+            missing.push("IDLE");
+        }
+
+        if !missing.is_empty() {
+            return Err(format!("Missing capability: {}", missing.join(" ")));
         }
 
         Ok(Imap {
             session,
             mailbox: None,
+            qresync: capabilities.deref().has(&Capability::Atom("QRESYNC")),
         })
     }
 
@@ -159,6 +169,10 @@ impl Imap {
         self.session
             .run_command_and_check_ok("ENABLE QRESYNC")
             .map_err(|e| format!("ENABLE QRESYNC Error: {}", e))
+    }
+
+    pub fn can_qresync(&self) -> bool {
+        self.qresync
     }
 
     pub fn select_mailbox(&mut self, mailbox: &str) -> Result<Mailbox, String> {
