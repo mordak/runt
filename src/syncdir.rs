@@ -73,7 +73,7 @@ impl SyncDir {
     fn elog(&self, msg: &str) {
         eprintln!(
             "{} {}: {}",
-            Local::now().format("%Y-%m-%d %H:%M:%S.%f"),
+            Local::now().format("%Y-%m-%d %H:%M:%S"),
             self.mailbox,
             msg
         );
