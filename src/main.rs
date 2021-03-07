@@ -1,6 +1,6 @@
 extern crate anyhow;
 extern crate chrono;
-extern crate dirs;
+extern crate dirs_next;
 extern crate imap;
 extern crate imap_proto;
 extern crate libc;

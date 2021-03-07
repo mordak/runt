@@ -54,7 +54,7 @@ impl Config {
     }
 
     pub fn dir() -> PathBuf {
-        let mut home = match dirs::home_dir() {
+        let mut home = match dirs_next::home_dir() {
             Some(path) => path,
             _ => PathBuf::from(""),
         };
