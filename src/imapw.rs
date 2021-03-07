@@ -208,7 +208,9 @@ impl Imap {
 
         let r = self
             .session
-            .append_with_flags(self.mailbox.as_ref().unwrap(), body, flags)
+            .append(self.mailbox.as_ref().unwrap(), body)
+            .flags(flags.iter().cloned())
+            .finish()
             .map_err(|e| e.to_string());
         r
     }
