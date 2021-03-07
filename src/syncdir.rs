@@ -72,8 +72,9 @@ impl SyncDir {
     /// Log an error message to the console
     fn elog(&self, msg: &str) {
         eprintln!(
-            "{} {}: {}",
+            "{} {}/{}: {}",
             Local::now().format("%Y-%m-%d %H:%M:%S"),
+            self.config.account,
             self.mailbox,
             msg
         );
