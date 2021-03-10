@@ -2,7 +2,6 @@ use crate::config::Account;
 use imap::types::{Fetch, Flag, Mailbox, Name, Uid, UnsolicitedResponse, ZeroCopy};
 use imap::Client;
 use imap::Session;
-use imap_proto::types::Capability;
 use native_tls::TlsConnector;
 use native_tls::TlsStream;
 use std::convert::From;
@@ -66,13 +65,13 @@ impl Imap {
             .map_err(|e| format!("CAPABILITIES Error: {}", e))?;
 
         let mut missing = Vec::new();
-        if !capabilities.deref().has(&Capability::Atom("ENABLE")) {
+        if !capabilities.deref().has_str("ENABLE") {
             missing.push("ENABLE");
         }
-        if !capabilities.deref().has(&Capability::Atom("UIDPLUS")) {
+        if !capabilities.deref().has_str("UIDPLUS") {
             missing.push("UIDPLUS");
         }
-        if !capabilities.deref().has(&Capability::Atom("IDLE")) {
+        if !capabilities.deref().has_str("IDLE") {
             missing.push("IDLE");
         }
 
@@ -83,7 +82,7 @@ impl Imap {
         Ok(Imap {
             session,
             mailbox: None,
-            qresync: capabilities.deref().has(&Capability::Atom("QRESYNC")),
+            qresync: capabilities.deref().has_str("QRESYNC"),
         })
     }
 

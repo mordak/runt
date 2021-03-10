@@ -268,9 +268,9 @@ dependencies = [
 
 [[package]]
 name = "imap"
-version = "3.0.0-alpha.1"
+version = "3.0.0-alpha.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "142bf7fdabff3e50479acaa802ac896b57e808250dd524171f029626ebf1efd0"
+checksum = "2cfb867ab837cadaa4ffe24e5d8328ac9a3d3efc2901cb19a271129fb9232db8"
 dependencies = [
  "base64 0.13.0",
  "bufstream",
@@ -284,9 +284,9 @@ dependencies = [
 
 [[package]]
 name = "imap-proto"
-version = "0.12.2"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09a8c68310c3270f918610217b289b4bb081750635dc0b30368541612e1e5c84"
+checksum = "68a33e3da467e611c3238f305625428accd990e17e371f6370093ce1cab04b96"
 dependencies = [
  "nom",
 ]
@@ -725,7 +725,6 @@ dependencies = [
  "chrono",
  "dirs-next",
  "imap",
- "imap-proto",
  "libc",
  "maildir",
  "native-tls",
@@ -781,9 +780,9 @@ dependencies = [
 
 [[package]]
 name = "security-framework"
-version = "2.1.1"
+version = "2.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2dfd318104249865096c8da1dfabf09ddbb6d0330ea176812a62ec75e40c4166"
+checksum = "d493c5f39e02dfb062cd8f33301f90f9b13b650e8c1b1d0fd75c19dd64bff69d"
 dependencies = [
  "bitflags",
  "core-foundation",
@@ -850,9 +849,9 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "syn"
-version = "1.0.62"
+version = "1.0.63"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "123a78a3596b24fee53a6464ce52d8ecbf62241e6294c7e7fe12086cd161f512"
+checksum = "8fd9bc7ccc2688b3344c2f48b9b546648b25ce0b20fc717ee7fa7981a8ca9717"
 dependencies = [
  "proc-macro2",
  "quote",
