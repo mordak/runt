@@ -472,16 +472,24 @@ impl SyncDir {
             }
 
             // If we need to push a new body.
-            // FIXME: Can we use something better than size?
-            //        If we store the file mod date, we could
-            //        use that instead...
             if cache_v.size() as u64 != mail_v.size() {
+                // Sometimes we see the SIZE field in a fetch response to be
+                // different from the BODY length.
+                // When this happens, we end up constantly replacing the
+                // message on server because it looks like it has changed.
+                // Since IMAP requires messages to be immutable, and Maildir
+                // mail clients typically treat the messages as immutable also
+                // we choose here to ignore when the on disk size and the cache
+                // size from the fatch response are different, in order to avoid
+                // looping files over and over again.
+                /*
                 imap.replace_uid(
                     cache_v.uid(),
                     &fs::read(mail_v.path()).map_err(|e| e.to_string())?,
                 )?;
                 self.maildir.delete_message(&id)?;
                 self.cache.delete_uid(cache_v.uid())?;
+                */
                 refetch.remove(&cache_v.uid());
             }
         }

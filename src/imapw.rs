@@ -229,6 +229,7 @@ impl Imap {
         r
     }
 
+    /*
     pub fn replace_uid(&mut self, uid: u32, body: &[u8]) -> Result<(), String> {
         // Fetch the current flags so we can copy them to the new message.
         let zc_vec_fetch = self.fetch_uid_meta(uid)?;
@@ -251,6 +252,7 @@ impl Imap {
         self.append(body, uidres.unwrap().flags())?;
         self.delete_uid(uid)
     }
+    */
 
     pub fn add_flags_for_uid(&mut self, uid: u32, flags: &[Flag]) -> Result<(), String> {
         let flagstr = flags
