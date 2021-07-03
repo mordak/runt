@@ -1,10 +1,8 @@
 use crate::config::Account;
 use imap::extensions::idle;
 use imap::types::{Fetch, Flag, Mailbox, Name, Uid, UnsolicitedResponse, ZeroCopy};
-use imap::{Client, ClientBuilder};
 use imap::Session;
-use native_tls::TlsConnector;
-use native_tls::TlsStream;
+use imap::{Client, ClientBuilder};
 use rustls_connector::TlsStream as RustlsStream;
 use std::convert::From;
 use std::net::TcpStream;
@@ -106,7 +104,8 @@ impl Imap {
         imap::connect(socket_addr, config.server.as_str(), &tls)
             .map_err(|e| format!("Connection to {:?} failed: {}", socket_addr, e))
         */
-        ClientBuilder::new(&config.server, config.port.unwrap()).rustls()
+        ClientBuilder::new(&config.server, config.port.unwrap())
+            .rustls()
             .map_err(|e| format!("Connection to {:?} failed: {}", &config.server, e))
     }
 
@@ -134,7 +133,8 @@ impl Imap {
             .map_err(|e| format!("{}", e))
             .and_then(|mut i| {
                 i.set_keepalive(Duration::from_secs(10 * 60));
-                i.wait_keepalive_while(idle::stop_on_any).map_err(|e| format!("{}", e))
+                i.wait_keepalive_while(idle::stop_on_any)
+                    .map_err(|e| format!("{}", e))
             })
             .map(|_| ())
     }

@@ -4,7 +4,6 @@ extern crate dirs_next;
 extern crate imap;
 extern crate libc;
 extern crate maildir;
-extern crate native_tls;
 extern crate notify;
 extern crate regex;
 extern crate rusqlite;

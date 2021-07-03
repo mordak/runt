@@ -1,4 +1,3 @@
-use native_tls::Certificate;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
@@ -64,6 +63,7 @@ impl Config {
 }
 
 impl Account {
+    /*
     pub fn get_server_ca_cert(&self) -> Option<Certificate> {
         if let Some(ca_path) = &self.server_ca_path {
             let mut certbuf: Vec<u8> = Vec::new();
@@ -73,6 +73,7 @@ impl Account {
         }
         None
     }
+    */
 
     /// Is this mailbox excluded from synchronization?
     pub fn is_mailbox_excluded(&self, name: &str) -> bool {
