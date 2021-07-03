@@ -98,7 +98,7 @@ impl SyncDir {
     }
 
     /// Check if we want to IDLE this mailbox
-    fn should_idle(&self) -> bool {
+    pub fn should_idle(&self) -> bool {
         self.config.is_mailbox_idled(&self.mailbox)
     }
 

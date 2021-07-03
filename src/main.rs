@@ -41,6 +41,8 @@ fn main() {
     let configs = Config::new();
     for config in configs.accounts {
         let mut imap = Imap::new(&config).unwrap();
+        let mut idle_mailboxes = Vec::new();
+        let mut pool_mailboxes = Vec::new();
         match imap.list(None, Some("*")) {
             Ok(listing) => {
                 for mailbox in listing.iter() {
@@ -52,9 +54,13 @@ fn main() {
                         // select it and sync
                         match SyncDir::new(&config, mailbox.name().to_string()) {
                             Err(e) => panic!("Sync failed: {}", e),
-                            Ok(mut sd) => {
+                            Ok(sd) => {
                                 notifications.push(sd.sender.clone());
-                                threads.push(spawn(move || sd.sync()));
+                                if sd.should_idle() {
+                                    idle_mailboxes.push(sd);
+                                } else {
+                                    pool_mailboxes.push(sd);
+                                }
                             }
                         }
                     }
@@ -63,6 +69,43 @@ fn main() {
             Err(e) => println!("Error getting listing: {}", e),
         };
         imap.logout().ok();
+
+        // Handle if the user has specified some maximum number of threads
+        // to run with. We have to allocate one thread for every idle
+        // mailbox, and remaining threads do all of the sync-once mailboxes.
+        let mut pool_size = pool_mailboxes.len();
+        if let Some(max_threads) = config.max_concurrency {
+            if let Some(pool) = max_threads.checked_sub(idle_mailboxes.len()) {
+                pool_size = pool;
+            } else {
+                pool_size = 0;
+            }
+
+            if pool_size == 0 && !pool_mailboxes.is_empty() {
+                println!("Account {}.max_concurrency ({}) is too small for the number of idle mailboxes ({}) and non-idle mailboxes.", config.account, max_threads, idle_mailboxes.len(), );
+                println!("You may see errors from the server and some mailboxes may not be synchronized.\nTo fix this, specify a number of mailboxes to idle that is smaller that max_concurrency, or increase max_concurrency if possible.");
+                pool_size = 1;
+            }
+        }
+
+        idle_mailboxes.into_iter().for_each(|mut sd| {
+            threads.push(spawn(move || sd.sync()));
+        });
+
+        if !pool_mailboxes.is_empty() {
+            if let Ok(pool) = rayon::ThreadPoolBuilder::new()
+                .num_threads(pool_size)
+                .build()
+            {
+                pool_mailboxes.into_iter().for_each(|mut sd| {
+                    pool.spawn(move || {
+                        if let Err(e) = sd.sync() {
+                            eprintln!("Synchronize-once for mailbox {} failed: {}", sd.mailbox, e);
+                        }
+                    })
+                });
+            }
+        }
     }
 
     // spin off the thread to wait for Ctrl-C

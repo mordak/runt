@@ -16,6 +16,7 @@ pub struct Account {
     pub password: Option<String>,
     pub exclude: Option<Vec<String>>,
     pub idle: Option<Vec<String>>,
+    pub max_concurrency: Option<usize>,
 }
 
 #[derive(Deserialize, Clone)]

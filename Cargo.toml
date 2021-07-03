@@ -1,6 +1,6 @@
 [package]
 name = "runt"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Todd Mortimer <todd@opennet.ca>"]
 edition = "2018"
 description = "IMAP / Maildir synchronization program"
