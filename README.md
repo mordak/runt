@@ -30,6 +30,9 @@ maildir = "/path/to/your/maildir"
 # Optional: Mailbox names to exclude from synchronization
 exclude = ["Skip", "These", "Mailboxes"]
 
+# Optional: Maximum number of threads to use for synchronization
+max_concurrency = 8
+
 # Optional: Mailboxes to IDLE and monitor for changes.
 # All mailboxes not in the `exclude` list will be synchronized on startup
 # but only mailboxes in the `idle` list will be continuously monitored.
