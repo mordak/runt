@@ -1,9 +1,11 @@
 use crate::config::Account;
+use imap::extensions::idle;
 use imap::types::{Fetch, Flag, Mailbox, Name, Uid, UnsolicitedResponse, ZeroCopy};
-use imap::Client;
+use imap::{Client, ClientBuilder};
 use imap::Session;
 use native_tls::TlsConnector;
 use native_tls::TlsStream;
+use rustls_connector::TlsStream as RustlsStream;
 use std::convert::From;
 use std::net::TcpStream;
 use std::ops::Deref;
@@ -48,7 +50,7 @@ impl<'a> From<&'a Fetch> for FetchResult<'a> {
 }
 
 pub struct Imap {
-    session: Session<TlsStream<TcpStream>>,
+    session: Session<RustlsStream<TcpStream>>,
     mailbox: Option<String>,
     qresync: bool,
 }
@@ -58,7 +60,7 @@ impl Imap {
         let client = Imap::connect(config)?;
         let mut session = client
             .login(config.username.as_str(), config.password.as_ref().unwrap())
-            .map_err(|e| format!("Login failed: {:?}", e))?;
+            .map_err(|e| format!("Login failed: {:?}", e.0))?;
 
         let capabilities = session
             .capabilities()
@@ -91,7 +93,8 @@ impl Imap {
         self.session.debug = enable;
     }
 
-    fn connect(config: &Account) -> Result<Client<TlsStream<TcpStream>>, String> {
+    fn connect(config: &Account) -> Result<Client<RustlsStream<TcpStream>>, String> {
+        /*
         let socket_addr = (config.server.as_str(), config.port.unwrap());
 
         let mut tlsconnector = TlsConnector::builder();
@@ -102,6 +105,9 @@ impl Imap {
 
         imap::connect(socket_addr, config.server.as_str(), &tls)
             .map_err(|e| format!("Connection to {:?} failed: {}", socket_addr, e))
+        */
+        ClientBuilder::new(&config.server, config.port.unwrap()).rustls()
+            .map_err(|e| format!("Connection to {:?} failed: {}", &config.server, e))
     }
 
     pub fn list(
@@ -115,13 +121,22 @@ impl Imap {
     }
 
     pub fn idle(&mut self) -> Result<(), String> {
+        /* IDLE Builder - not released yet
+        self.session
+            .idle()
+            .timeout(Duration::from_secs(10 * 60))
+            .wait_while(idle::stop_on_any)
+            .map_err(|e| format!("{}", e))
+            .map(|_| ())
+        */
         self.session
             .idle()
             .map_err(|e| format!("{}", e))
             .and_then(|mut i| {
                 i.set_keepalive(Duration::from_secs(10 * 60));
-                i.wait_keepalive().map_err(|e| format!("{}", e))
+                i.wait_keepalive_while(idle::stop_on_any).map_err(|e| format!("{}", e))
             })
+            .map(|_| ())
     }
 
     pub fn fetch_uid(&mut self, uid: u32) -> Result<ZeroCopy<Vec<Fetch>>, String> {
