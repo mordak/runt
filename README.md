@@ -27,9 +27,6 @@ password_command = "pass mail.example.com"
 # The path to where you want the maildir for this account
 maildir = "/path/to/your/maildir"
 
-# Optional: Path to private CA bundle if using a private certificate.
-server_ca_path = "/path/to/private/ca/if/needed"
-
 # Optional: Mailbox names to exclude from synchronization
 exclude = ["Skip", "These", "Mailboxes"]
 

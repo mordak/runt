@@ -92,18 +92,6 @@ impl Imap {
     }
 
     fn connect(config: &Account) -> Result<Client<RustlsStream<TcpStream>>, String> {
-        /*
-        let socket_addr = (config.server.as_str(), config.port.unwrap());
-
-        let mut tlsconnector = TlsConnector::builder();
-        if config.server_ca_path.is_some() {
-            tlsconnector.add_root_certificate(config.get_server_ca_cert().unwrap());
-        }
-        let tls = tlsconnector.build().unwrap();
-
-        imap::connect(socket_addr, config.server.as_str(), &tls)
-            .map_err(|e| format!("Connection to {:?} failed: {}", socket_addr, e))
-        */
         ClientBuilder::new(&config.server, config.port.unwrap())
             .rustls()
             .map_err(|e| format!("Connection to {:?} failed: {}", &config.server, e))

@@ -9,7 +9,6 @@ pub struct Account {
     pub account: String,
     pub server: String,
     pub port: Option<u16>,
-    pub server_ca_path: Option<String>,
     pub username: String,
     pub maildir: String,
     pub password_command: Option<String>,
@@ -64,18 +63,6 @@ impl Config {
 }
 
 impl Account {
-    /*
-    pub fn get_server_ca_cert(&self) -> Option<Certificate> {
-        if let Some(ca_path) = &self.server_ca_path {
-            let mut certbuf: Vec<u8> = Vec::new();
-            let mut certfile = File::open(ca_path).unwrap();
-            certfile.read_to_end(&mut certbuf).unwrap();
-            return Some(Certificate::from_pem(&certbuf).unwrap());
-        }
-        None
-    }
-    */
-
     /// Is this mailbox excluded from synchronization?
     pub fn is_mailbox_excluded(&self, name: &str) -> bool {
         if let Some(exclude) = &self.exclude {
