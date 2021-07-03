@@ -1,5 +1,5 @@
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub struct StateFile {
     path: PathBuf,
@@ -18,7 +18,7 @@ pub struct StateFileFields {
 }
 
 impl StateFile {
-    pub fn new(path: &PathBuf) -> Result<StateFile, String> {
+    pub fn new(path: &Path) -> Result<StateFile, String> {
         if path.exists() {
             StateFile::from_file(&path)
         } else {
@@ -26,7 +26,7 @@ impl StateFile {
         }
     }
 
-    fn make_new(path: &PathBuf) -> Result<StateFile, String> {
+    fn make_new(path: &Path) -> Result<StateFile, String> {
         let blank = StateFile {
             path: path.to_path_buf(),
             state: StateFileFields {
@@ -42,7 +42,7 @@ impl StateFile {
         blank.save().map(|_| blank)
     }
 
-    fn from_file(path: &PathBuf) -> Result<StateFile, String> {
+    fn from_file(path: &Path) -> Result<StateFile, String> {
         std::fs::read_to_string(path)
             .map_err(|e| format!("{}", e))
             .and_then(|buf| serde_json::from_str(&buf).map_err(|e| format!("{}", e)))

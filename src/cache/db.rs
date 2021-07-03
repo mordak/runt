@@ -1,14 +1,14 @@
 use crate::cache::messagemeta::MessageMeta;
 use rusqlite::{params, Connection};
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub struct Db {
     dbpath: PathBuf,
 }
 
 impl Db {
-    fn init_db(path: &PathBuf) -> Result<(), String> {
+    fn init_db(path: &Path) -> Result<(), String> {
         let conn = Connection::open(path)
             .map_err(|e| format!("DB Open failed at {}: {}", path.display(), e))?;
 
@@ -26,12 +26,12 @@ impl Db {
         .map_err(|e| format!("CREATE TABLE: {}", e))
     }
 
-    pub fn from_file(path: &PathBuf) -> Result<Db, String> {
+    pub fn from_file(path: &Path) -> Result<Db, String> {
         if !path.exists() {
             Db::init_db(path)?;
         }
         Ok(Db {
-            dbpath: path.clone(),
+            dbpath: path.to_path_buf(),
         })
     }
 
@@ -140,10 +140,8 @@ impl Db {
             })
             .map_err(|e| format!("query_map: {}", e))?;
 
-        for r in rows {
-            if let Ok(meta) = r {
-                h.insert(meta.id().to_string(), meta);
-            }
+        for meta in rows.flatten() {
+            h.insert(meta.id().to_string(), meta);
         }
         Ok(h)
     }
