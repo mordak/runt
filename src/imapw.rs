@@ -1,24 +1,23 @@
 use crate::config::Account;
 use imap::extensions::idle;
-use imap::types::{Fetch, Flag, Mailbox, Name, Uid, UnsolicitedResponse, ZeroCopy};
+use imap::types::{Fetch, Fetches, Flag, Mailbox, Names, Uid, UnsolicitedResponse};
 use imap::Session;
 use imap::{Client, ClientBuilder};
 use rustls_connector::TlsStream as RustlsStream;
 use std::convert::From;
 use std::net::TcpStream;
-use std::ops::Deref;
 use std::time::Duration;
 use std::vec::Vec;
 
 pub enum FetchResult<'a> {
     Uid(UidResult<'a>),
     //    ModSeq(ModResult),
-    Other(&'a Fetch),
+    Other(&'a Fetch<'a>),
 }
 
 #[derive(Debug)]
 pub struct UidResult<'a> {
-    fetch: &'a Fetch,
+    fetch: &'a Fetch<'a>,
 }
 
 impl<'a> UidResult<'a> {
@@ -36,8 +35,8 @@ impl<'a> UidResult<'a> {
     }
 }
 
-impl<'a> From<&'a Fetch> for FetchResult<'a> {
-    fn from(fetch: &'a Fetch) -> FetchResult<'a> {
+impl<'a> From<&'a Fetch<'a>> for FetchResult<'a> {
+    fn from(fetch: &'a Fetch<'a>) -> FetchResult<'a> {
         // FIXME: Handle MODSEQ here
         if fetch.uid.is_some() && fetch.size.is_some() && fetch.internal_date().is_some() {
             FetchResult::Uid(UidResult { fetch })
@@ -65,13 +64,13 @@ impl Imap {
             .map_err(|e| format!("CAPABILITIES Error: {}", e))?;
 
         let mut missing = Vec::new();
-        if !capabilities.deref().has_str("ENABLE") {
+        if !capabilities.has_str("ENABLE") {
             missing.push("ENABLE");
         }
-        if !capabilities.deref().has_str("UIDPLUS") {
+        if !capabilities.has_str("UIDPLUS") {
             missing.push("UIDPLUS");
         }
-        if !capabilities.deref().has_str("IDLE") {
+        if !capabilities.has_str("IDLE") {
             missing.push("IDLE");
         }
 
@@ -82,7 +81,7 @@ impl Imap {
         Ok(Imap {
             session,
             mailbox: None,
-            qresync: capabilities.deref().has_str("QRESYNC"),
+            qresync: capabilities.has_str("QRESYNC"),
         })
     }
 
@@ -101,33 +100,22 @@ impl Imap {
         &mut self,
         reference_name: Option<&str>,
         mailbox_pattern: Option<&str>,
-    ) -> Result<ZeroCopy<Vec<Name>>, String> {
+    ) -> Result<Names, String> {
         self.session
             .list(reference_name, mailbox_pattern)
             .map_err(|e| format!("LIST failed: {}", e))
     }
 
     pub fn idle(&mut self) -> Result<(), String> {
-        /* IDLE Builder - not released yet
         self.session
             .idle()
             .timeout(Duration::from_secs(10 * 60))
             .wait_while(idle::stop_on_any)
             .map_err(|e| format!("{}", e))
             .map(|_| ())
-        */
-        self.session
-            .idle()
-            .map_err(|e| format!("{}", e))
-            .and_then(|mut i| {
-                i.set_keepalive(Duration::from_secs(10 * 60));
-                i.wait_keepalive_while(idle::stop_on_any)
-                    .map_err(|e| format!("{}", e))
-            })
-            .map(|_| ())
     }
 
-    pub fn fetch_uid(&mut self, uid: u32) -> Result<ZeroCopy<Vec<Fetch>>, String> {
+    pub fn fetch_uid(&mut self, uid: u32) -> Result<Fetches, String> {
         self.session
             .uid_fetch(
                 format!("{}", uid),
@@ -136,7 +124,7 @@ impl Imap {
             .map_err(|e| format!("UID FETCH failed: {}", e))
     }
 
-    pub fn fetch_uid_meta(&mut self, uid: u32) -> Result<ZeroCopy<Vec<Fetch>>, String> {
+    pub fn fetch_uid_meta(&mut self, uid: u32) -> Result<Fetches, String> {
         self.session
             .uid_fetch(format!("{}", uid), "(UID RFC822.SIZE INTERNALDATE FLAGS)")
             .map_err(|e| format!("UID FETCH failed: {}", e))
@@ -147,7 +135,7 @@ impl Imap {
         first: u32,
         last: Option<u32>,
         changedsince: Option<u64>,
-    ) -> Result<ZeroCopy<Vec<Fetch>>, String> {
+    ) -> Result<Fetches, String> {
         let range = match last {
             None => format!("{}:*", first),
             Some(n) if n > first => format!("{}:{}", first, n),
