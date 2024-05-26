@@ -20,9 +20,9 @@ pub struct StateFileFields {
 impl StateFile {
     pub fn new(path: &Path) -> Result<StateFile, String> {
         if path.exists() {
-            StateFile::from_file(&path)
+            StateFile::from_file(path)
         } else {
-            StateFile::make_new(&path)
+            StateFile::make_new(path)
         }
     }
 
@@ -86,7 +86,7 @@ impl StateFile {
         std::fs::File::create(&self.path)
             .and_then(|mut f| {
                 f.write_all(
-                    &serde_json::to_string_pretty(&self.state)
+                    serde_json::to_string_pretty(&self.state)
                         .unwrap()
                         .as_bytes(),
                 )
