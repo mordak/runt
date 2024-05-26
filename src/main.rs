@@ -48,7 +48,7 @@ fn main() {
                 for mailbox in listing.iter() {
                     if !mailbox
                         .attributes()
-                        .contains(&imap::types::NameAttribute::NoSelect)
+                        .contains(&imap_proto::types::NameAttribute::NoSelect)
                         && !config.is_mailbox_excluded(mailbox.name())
                     {
                         // select it and sync

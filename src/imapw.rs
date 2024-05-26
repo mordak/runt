@@ -1,11 +1,9 @@
 use crate::config::Account;
 use imap::extensions::idle;
-use imap::types::{Fetch, Fetches, Flag, Mailbox, Names, Uid, UnsolicitedResponse};
+use imap::types::{Appended, Fetch, Fetches, Flag, Mailbox, Names, Uid, UnsolicitedResponse};
 use imap::Session;
-use imap::{Client, ClientBuilder};
-use rustls_connector::TlsStream as RustlsStream;
+use imap::{Client, ClientBuilder, Connection};
 use std::convert::From;
-use std::net::TcpStream;
 use std::time::Duration;
 use std::vec::Vec;
 
@@ -47,7 +45,7 @@ impl<'a> From<&'a Fetch<'a>> for FetchResult<'a> {
 }
 
 pub struct Imap {
-    session: Session<RustlsStream<TcpStream>>,
+    session: Session<Connection>,
     mailbox: Option<String>,
     qresync: bool,
 }
@@ -90,9 +88,10 @@ impl Imap {
         self.session.debug = enable;
     }
 
-    fn connect(config: &Account) -> Result<Client<RustlsStream<TcpStream>>, String> {
+    fn connect(config: &Account) -> Result<Client<Connection>, String> {
         ClientBuilder::new(&config.server, config.port.unwrap())
-            .rustls()
+            .tls_kind(imap::TlsKind::Rust)
+            .connect()
             .map_err(|e| format!("Connection to {:?} failed: {}", &config.server, e))
     }
 
@@ -191,7 +190,7 @@ impl Imap {
         Ok(())
     }
 
-    pub fn append(&mut self, body: &[u8], flags: &[Flag]) -> Result<(), String> {
+    pub fn append(&mut self, body: &[u8], flags: &[Flag]) -> Result<Appended, String> {
         if self.mailbox.is_none() {
             return Err("No mailbox selected".to_string());
         }
