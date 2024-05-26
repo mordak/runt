@@ -237,11 +237,7 @@ impl SyncDir {
     /// Used to process a full set of IMAP FETCH results. Since the IMAP
     /// server is the source of truth, anything in the given FETCH results
     /// must be either existing / known or new and need to be downloaded.
-    fn cache_uids_from_imap(
-        &mut self,
-        imap: &mut Imap,
-        fetches: &Fetches,
-    ) -> Result<(), String> {
+    fn cache_uids_from_imap(&mut self, imap: &mut Imap, fetches: &Fetches) -> Result<(), String> {
         let mut err = false;
         for fetch in fetches.iter() {
             match FetchResult::from(fetch) {
@@ -305,10 +301,7 @@ impl SyncDir {
     /// cache db and Maildir. Any UIDs remaining in the cache db must have
     /// been deleted on the server and should be deleted from the cache db
     /// and the Maildir.
-    fn remove_imap_deleted_messages(
-        &mut self,
-        fetches: &Fetches,
-    ) -> Result<(), String> {
+    fn remove_imap_deleted_messages(&mut self, fetches: &Fetches) -> Result<(), String> {
         let mut err = false;
         self.cache.get_known_uids().and_then(|mut cached_uids| {
             // Remove all the fetched uids from the cached values
