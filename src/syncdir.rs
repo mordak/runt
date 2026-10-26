@@ -7,7 +7,9 @@ use crate::imapw::{FetchResult, Imap, UidResult};
 use crate::maildirw::Maildir;
 use chrono::prelude::*;
 use imap::types::{Fetch, Fetches, Mailbox, Uid, UnsolicitedResponse};
-use notify::{RecursiveMode, Watcher, watcher};
+use notify_debouncer_full::notify::RecursiveMode;
+use notify_debouncer_full::notify::event::{Event, EventKind, ModifyKind};
+use notify_debouncer_full::{DebounceEventResult, new_debouncer};
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
@@ -34,18 +36,19 @@ pub enum SyncMessage {
 /// Create / Rename / Remove events for the message files. We accept either,
 /// but only in new/ and cur/: files in tmp/ are still being delivered and
 /// will be renamed into new/ or cur/ when complete, and anything deeper is
-/// a separate (nested) mailbox that this sync does not cover.
-fn is_maildir_change(event: &notify::DebouncedEvent, root: &Path) -> bool {
-    use notify::DebouncedEvent::*;
+/// a separate (nested) mailbox that this sync does not cover. Access and
+/// metadata-only (e.g. chmod) events do not change messages and are ignored.
+fn is_maildir_change(event: &Event, root: &Path) -> bool {
+    if event.need_rescan() {
+        return true;
+    }
     let new = root.join("new");
     let cur = root.join("cur");
     let relevant =
         |p: &Path| p == new || p == cur || matches!(p.parent(), Some(d) if d == new || d == cur);
-    match event {
-        Create(p) | Write(p) | Remove(p) => relevant(p),
-        Rename(from, to) => relevant(from) || relevant(to),
-        Rescan => true,
-        NoticeWrite(_) | NoticeRemove(_) | Chmod(_) | Error(..) => false,
+    match event.kind {
+        EventKind::Access(_) | EventKind::Modify(ModifyKind::Metadata(_)) => false,
+        _ => event.paths.iter().any(|p| relevant(p)),
     }
 }
 
@@ -135,8 +138,8 @@ impl SyncDir {
         let path = self.maildir.path();
         let path = fs::canonicalize(&path).unwrap_or(path);
         let handle = spawn(move || {
-            let (tx, rx) = channel();
-            let mut watcher = match watcher(tx, Duration::from_secs(10)) {
+            let (tx, rx) = channel::<DebounceEventResult>();
+            let mut watcher = match new_debouncer(Duration::from_secs(10), None, tx) {
                 Ok(w) => w,
                 Err(e) => {
                     sender
@@ -157,13 +160,13 @@ impl SyncDir {
             }
             loop {
                 match rx.recv() {
-                    Ok(notify::DebouncedEvent::Error(e, p)) => {
-                        sender
-                            .send(SyncMessage::MaildirError(format!("{:?}: {}", p, e)))
-                            .ok();
+                    Ok(Err(errors)) => {
+                        for e in errors {
+                            sender.send(SyncMessage::MaildirError(e.to_string())).ok();
+                        }
                     }
-                    Ok(event) => {
-                        if is_maildir_change(&event, &path) {
+                    Ok(Ok(events)) => {
+                        if events.iter().any(|e| is_maildir_change(e, &path)) {
                             sender.send(SyncMessage::MaildirChanged).ok();
                         }
                     }
@@ -674,8 +677,16 @@ impl SyncDir {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use notify::DebouncedEvent::*;
+    use notify_debouncer_full::notify::event::{
+        AccessKind, AccessMode, CreateKind, DataChange, Flag, MetadataKind, RemoveKind, RenameMode,
+    };
     use std::path::PathBuf;
+
+    fn ev(kind: EventKind, paths: &[PathBuf]) -> Event {
+        paths
+            .iter()
+            .fold(Event::new(kind), |e, p| e.add_path(p.clone()))
+    }
 
     #[test]
     fn maildir_change_events() {
@@ -683,31 +694,66 @@ mod tests {
         let p = |s: &str| root.join(s);
         let change = |e| is_maildir_change(&e, &root);
 
+        let create = |s| ev(EventKind::Create(CreateKind::File), &[p(s)]);
+        let remove = |s| ev(EventKind::Remove(RemoveKind::File), &[p(s)]);
+        let write = |s| {
+            ev(
+                EventKind::Modify(ModifyKind::Data(DataChange::Any)),
+                &[p(s)],
+            )
+        };
+        let rename = |from, to| {
+            ev(
+                EventKind::Modify(ModifyKind::Name(RenameMode::Both)),
+                &[p(from), p(to)],
+            )
+        };
+        let chmod = |s| {
+            ev(
+                EventKind::Modify(ModifyKind::Metadata(MetadataKind::Permissions)),
+                &[p(s)],
+            )
+        };
+        let close = |s| {
+            ev(
+                EventKind::Access(AccessKind::Close(AccessMode::Write)),
+                &[p(s)],
+            )
+        };
+
         // Linux (inotify) style: events on the message files
-        assert!(change(Create(p("new/1.host"))));
-        assert!(change(Remove(p("cur/1.host:2,S"))));
-        assert!(change(Write(p("cur/1.host:2,S"))));
-        assert!(change(Rename(p("tmp/1.host"), p("new/1.host"))));
-        assert!(change(Rename(p("new/1.host"), p("cur/1.host:2,S"))));
-        assert!(change(Rename(p("cur/1.host:2,S"), p("cur/1.host:2,RS"))));
+        assert!(change(create("new/1.host")));
+        assert!(change(remove("cur/1.host:2,S")));
+        assert!(change(write("cur/1.host:2,S")));
+        assert!(change(rename("tmp/1.host", "new/1.host")));
+        assert!(change(rename("new/1.host", "cur/1.host:2,S")));
+        assert!(change(rename("cur/1.host:2,S", "cur/1.host:2,RS")));
+        // Unpaired rename halves, as reported when the debouncer cannot match them
+        assert!(change(ev(
+            EventKind::Modify(ModifyKind::Name(RenameMode::From)),
+            &[p("cur/1.host:2,S")]
+        )));
+        assert!(change(ev(
+            EventKind::Modify(ModifyKind::Name(RenameMode::To)),
+            &[p("new/1.host")]
+        )));
         // macOS (FSEvents) style: writes on the directories
-        assert!(change(Write(p("new"))));
-        assert!(change(Write(p("cur"))));
-        assert!(change(Rescan));
+        assert!(change(write("new")));
+        assert!(change(write("cur")));
+        assert!(change(ev(EventKind::Other, &[]).set_flag(Flag::Rescan)));
 
         // In-progress deliveries
-        assert!(!change(Create(p("tmp/1.host"))));
-        assert!(!change(Write(p("tmp/1.host"))));
-        assert!(!change(Write(p("tmp"))));
-        assert!(!change(Remove(p("tmp/1.host"))));
+        assert!(!change(create("tmp/1.host")));
+        assert!(!change(write("tmp/1.host")));
+        assert!(!change(write("tmp")));
+        assert!(!change(remove("tmp/1.host")));
         // Nested mailboxes are synced separately
-        assert!(!change(Create(p("Sub/new/1.host"))));
-        assert!(!change(Write(p("Sub/cur"))));
-        assert!(!change(Create(p("Sub"))));
-        // Notices and attribute changes
-        assert!(!change(NoticeWrite(p("new/1.host"))));
-        assert!(!change(NoticeRemove(p("new/1.host"))));
-        assert!(!change(Chmod(p("new/1.host"))));
+        assert!(!change(create("Sub/new/1.host")));
+        assert!(!change(write("Sub/cur")));
+        assert!(!change(create("Sub")));
+        // Access and attribute changes
+        assert!(!change(close("new/1.host")));
+        assert!(!change(chmod("new/1.host")));
     }
 
     /// Deliver messages into a real Maildir and check that the platform
@@ -719,13 +765,13 @@ mod tests {
         md.create_dirs().unwrap();
         let root = fs::canonicalize(md.path()).unwrap();
 
-        let (tx, rx) = channel();
-        let mut w = watcher(tx, Duration::from_millis(100)).unwrap();
+        let (tx, rx) = channel::<DebounceEventResult>();
+        let mut w = new_debouncer(Duration::from_millis(100), None, tx).unwrap();
         w.watch(&root, RecursiveMode::Recursive).unwrap();
 
         let saw_change = |what: &str| loop {
             match rx.recv_timeout(Duration::from_secs(5)) {
-                Ok(event) if is_maildir_change(&event, &root) => break,
+                Ok(Ok(events)) if events.iter().any(|e| is_maildir_change(e, &root)) => break,
                 Ok(_) => continue,
                 Err(e) => panic!("no change event after {}: {}", what, e),
             }

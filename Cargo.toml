@@ -20,7 +20,7 @@ imap = { version = "3.0.0-alpha.15", default-features = false, features = ["rust
 imap-proto = "0.16.7"
 libc = "0.2.191"
 maildir = "0.6.6"
-notify = "4.0.15"
+notify-debouncer-full = "0.7.0"
 rayon = "1.12.0"
 rusqlite = "0.41.0"
 serde = { version = "1.0.229", features = ["derive"] }
