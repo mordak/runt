@@ -54,7 +54,7 @@ impl Config {
     }
 
     pub fn dir() -> PathBuf {
-        let mut home = match dirs_next::home_dir() {
+        let mut home = match dirs::home_dir() {
             Some(path) => path,
             _ => PathBuf::from(""),
         };
@@ -83,5 +83,34 @@ impl Account {
         } else {
             true
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The example config in the README should parse.
+    #[test]
+    fn parse_readme_example() {
+        let readme = include_str!("../README.md");
+        let start = readme.find("```toml\n").unwrap() + "```toml\n".len();
+        let len = readme[start..].find("```").unwrap();
+        let config: Config = toml::from_str(&readme[start..start + len]).unwrap();
+
+        assert_eq!(config.accounts.len(), 1);
+        let a = &config.accounts[0];
+        assert_eq!(a.account, "example");
+        assert_eq!(a.server, "mail.example.com");
+        assert_eq!(a.port, Some(993));
+        assert_eq!(a.username, "user");
+        assert_eq!(a.maildir, "/path/to/your/maildir");
+        assert_eq!(a.password.as_deref(), Some("accountpassword"));
+        assert_eq!(a.password_command.as_deref(), Some("pass mail.example.com"));
+        assert_eq!(a.max_concurrency, Some(8));
+        assert!(a.is_mailbox_excluded("Skip"));
+        assert!(!a.is_mailbox_excluded("INBOX"));
+        assert!(a.is_mailbox_idled("INBOX"));
+        assert!(!a.is_mailbox_idled("Archive"));
     }
 }

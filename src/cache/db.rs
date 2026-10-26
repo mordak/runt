@@ -188,3 +188,52 @@ impl Db {
         .map_err(|e| format!("query_row: {}", e))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn db_round_trip() {
+        let dir = std::env::temp_dir().join(format!("runt-db-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cache.db");
+        let db = Db::from_file(&path).unwrap();
+        assert_eq!(db.num_entries().unwrap(), 0);
+
+        let meta = MessageMeta::from_fields(7, 1234, 1_600_000_000_000, "FS".into(), "a.b".into());
+        db.add(&meta).unwrap();
+        db.add(&MessageMeta::from_fields(9, 1, 2, "".into(), "c.d".into()))
+            .unwrap();
+        assert_eq!(db.num_entries().unwrap(), 2);
+        assert_eq!(db.get_uids().unwrap(), HashSet::from([7, 9]));
+
+        let got = db.get_uid(7).unwrap();
+        assert_eq!(got.id(), "a.b");
+        assert_eq!(got.size(), 1234);
+        assert_eq!(got.internal_date_millis(), 1_600_000_000_000);
+        assert_eq!(got.flags(), meta.flags());
+        assert_eq!(db.get_id("c.d").unwrap().uid(), 9);
+        assert!(db.get_ids().unwrap().contains_key("a.b"));
+
+        db.update(&MessageMeta::from_fields(
+            7,
+            1234,
+            1_600_000_000_000,
+            "S".into(),
+            "a.b".into(),
+        ))
+        .unwrap();
+        assert_eq!(db.get_uid(7).unwrap().flags(), "S");
+
+        // SyncDir relies on a missing UID surfacing as QueryReturnedNoRows.
+        db.delete_uid(7).unwrap();
+        let err = db.get_uid(7).unwrap_err();
+        assert!(matches!(
+            err.downcast_ref::<rusqlite::Error>(),
+            Some(rusqlite::Error::QueryReturnedNoRows)
+        ));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}
