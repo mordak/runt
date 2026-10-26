@@ -13,19 +13,18 @@ license = "MIT"
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-anyhow = "1.0.34"
-chrono = "0.4.10"
+anyhow = "1.0.104"
+chrono = "0.4.45"
 dirs-next = "2.0.0"
-imap = { version = "3.0.0-alpha.14", default-features = false, features = ["rustls-tls"] }
-imap-proto = "0.16.5"
-libc = "0.2"
+imap = { version = "3.0.0-alpha.15", default-features = false, features = ["rustls-tls"] }
+imap-proto = "0.16.7"
+libc = "0.2.191"
 maildir = "0.4.2"
 notify = "4.0.15"
-rayon = "1.5.1"
+rayon = "1.12.0"
 rusqlite = "0.23.1"
-serde = "1.0.104"
-serde_derive = "1.0.104"
-serde_json = "1.0.44"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 toml = "0.5.5"
 
 #[patch.crates-io]

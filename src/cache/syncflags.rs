@@ -1,6 +1,7 @@
 use imap::types::Flag;
-use serde::de::{self, Deserialize, Deserializer, Visitor};
-use serde::ser::{Serialize, Serializer};
+use serde::de::{self, Deserializer, Visitor};
+use serde::ser::Serializer;
+use serde::{Deserialize, Serialize};
 use std::fmt::{self, Write};
 
 #[derive(Serialize, Deserialize, PartialEq, Clone, Copy, Debug)]

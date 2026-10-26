@@ -250,12 +250,10 @@ impl Imap {
             .map(|_| ())
     }
 
-    pub fn for_each_unsolicited_response<F>(&mut self, mut f: F)
+    pub fn for_each_unsolicited_response<F>(&mut self, f: F)
     where
         F: FnMut(UnsolicitedResponse),
     {
-        while let Ok(u) = self.session.unsolicited_responses.try_recv() {
-            f(u)
-        }
+        self.session.take_all_unsolicited().for_each(f)
     }
 }

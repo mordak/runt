@@ -1,4 +1,5 @@
 use imap::types::{Flag, Uid};
+use serde::{Deserialize, Serialize};
 
 use super::syncflags::{FlagValue, SyncFlags};
 use crate::imapw::UidResult;
