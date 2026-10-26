@@ -124,7 +124,7 @@ impl Maildir {
 
             if let Some(cache_meta) = cache.get(mailentry.id()) {
                 // If the meta is different then add it to the changed list
-                if !meta_equal(&mailentry, &cache_meta)? {
+                if !meta_equal(&mailentry, cache_meta)? {
                     changed.push(mailentry.id().to_string());
                 }
 

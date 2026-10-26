@@ -108,7 +108,7 @@ impl SyncDir {
     /// ends, the thread will send a message to the main sync thread.
     fn idle(&self) -> Result<JoinHandle<()>, String> {
         let mut imap = Imap::new(&self.config)?;
-        imap.select_mailbox(&self.mailbox.as_str())?;
+        imap.select_mailbox(self.mailbox.as_str())?;
         //imap.debug(true);
         let sender = self.sender.clone();
         let handle = spawn(move || {
@@ -192,7 +192,7 @@ impl SyncDir {
                 self.maildir
                     .save_message(body, &maildir_flags_from_imap(fetch.flags()))
             })
-            .and_then(|id| self.cache.add(&id, &fetch))
+            .and_then(|id| self.cache.add(&id, fetch))
     }
 
     /// Delete a given UID from the Maildir and clear its entry from cache.
@@ -546,11 +546,7 @@ impl SyncDir {
         for id in new {
             let mail_v = self.maildir.get_id(&id)?;
             let sflags = SyncFlags::from(mail_v.flags());
-            let flags = if let Some(f) = sflags.as_imap_flags() {
-                f
-            } else {
-                Vec::new()
-            };
+            let flags = sflags.as_imap_flags().unwrap_or_default();
 
             // Push to the server first, then delete the local copy
             imap.append(&fs::read(mail_v.path()).map_err(|e| e.to_string())?, &flags)?;
@@ -583,7 +579,7 @@ impl SyncDir {
             if imap.can_qresync() {
                 imap.enable_qresync().unwrap();
             }
-            let mailbox = imap.select_mailbox(&self.mailbox.as_str())?;
+            let mailbox = imap.select_mailbox(self.mailbox.as_str())?;
             //imap.debug(false);
 
             self.log(&format!(

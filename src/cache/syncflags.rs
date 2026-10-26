@@ -1,6 +1,7 @@
 use imap::types::Flag;
 use serde::de::{self, Deserialize, Deserializer, Visitor};
 use serde::ser::{Serialize, Serializer};
+use std::fmt::{self, Write};
 
 #[derive(Serialize, Deserialize, PartialEq, Clone, Copy, Debug)]
 pub enum FlagValue {
@@ -94,20 +95,19 @@ impl From<&[Flag<'_>]> for SyncFlags {
     }
 }
 
-impl ToString for SyncFlags {
-    fn to_string(&self) -> String {
-        let mut s = String::with_capacity(5);
-        for i in 0..self.maildir.len() {
-            match self.maildir[i] {
-                FlagValue::Draft => s.push('D'),
-                FlagValue::Flagged => s.push('F'),
-                FlagValue::Replied => s.push('R'),
-                FlagValue::Seen => s.push('S'),
-                FlagValue::Trashed => s.push('T'),
+impl fmt::Display for SyncFlags {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for flag in &self.maildir {
+            match *flag {
+                FlagValue::Draft => f.write_char('D')?,
+                FlagValue::Flagged => f.write_char('F')?,
+                FlagValue::Replied => f.write_char('R')?,
+                FlagValue::Seen => f.write_char('S')?,
+                FlagValue::Trashed => f.write_char('T')?,
                 _ => (),
             }
         }
-        s
+        Ok(())
     }
 }
 
@@ -143,7 +143,7 @@ impl SyncFlags {
         true
     }
 
-    pub fn as_imap_flags(&self) -> Option<Vec<Flag>> {
+    pub fn as_imap_flags(&self) -> Option<Vec<Flag<'_>>> {
         let mut res = Vec::<Flag>::with_capacity(self.maildir.len());
         for flag in &self.maildir {
             match *flag {

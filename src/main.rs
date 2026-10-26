@@ -31,7 +31,10 @@ static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 fn main() {
     // set up signal handler for Ctrl-C
     unsafe {
-        libc::signal(SIGINT, handle_sigint as usize);
+        libc::signal(
+            SIGINT,
+            handle_sigint as extern "C" fn(libc::c_int) as libc::sighandler_t,
+        );
     }
 
     let mut threads = vec![];
@@ -126,8 +129,7 @@ fn main() {
     }
 }
 
-#[allow(dead_code)]
-fn handle_sigint(_signal: i32) {
+extern "C" fn handle_sigint(_signal: libc::c_int) {
     println!("Shutting down...");
     SHUTDOWN.store(true, Ordering::Relaxed);
 }

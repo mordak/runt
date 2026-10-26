@@ -31,7 +31,7 @@ impl<'a> UidResult<'a> {
     pub fn internal_date_millis(&self) -> i64 {
         self.fetch.internal_date().unwrap().timestamp_millis()
     }
-    pub fn flags(&self) -> &[Flag] {
+    pub fn flags(&self) -> &[Flag<'_>] {
         self.fetch.flags()
     }
 }
@@ -94,7 +94,7 @@ impl Imap {
     fn connect(config: &Account) -> Result<Client<RustlsStream<TcpStream>>, String> {
         ClientBuilder::new(&config.server, config.port.unwrap())
             .rustls()
-            .map_err(|e| format!("Connection to {:?} failed: {}", &config.server, e))
+            .map_err(|e| format!("Connection to {:?} failed: {}", config.server, e))
     }
 
     pub fn list(
@@ -181,9 +181,8 @@ impl Imap {
         self.session
             .select(mailbox)
             .map_err(|e| format!("SELECT {} failed: {}", mailbox, e))
-            .map(|mbox| {
+            .inspect(|_| {
                 self.mailbox = Some(mailbox.to_string());
-                mbox
             })
     }
 
