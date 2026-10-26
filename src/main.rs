@@ -5,13 +5,11 @@ extern crate imap;
 extern crate libc;
 extern crate maildir;
 extern crate notify;
-extern crate regex;
 extern crate rusqlite;
 extern crate serde;
 extern crate toml;
 #[macro_use]
 extern crate serde_derive;
-extern crate rustls_connector;
 
 mod cache;
 mod config;
