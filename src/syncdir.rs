@@ -11,6 +11,7 @@ use notify::{watcher, RecursiveMode, Watcher};
 use std::collections::HashSet;
 use std::fs;
 use std::ops::Deref;
+use std::path::Path;
 use std::sync::mpsc::{channel, Receiver, RecvError, Sender, TryRecvError};
 use std::thread::{sleep, spawn, JoinHandle};
 use std::time::Duration;
@@ -24,6 +25,29 @@ pub enum SyncMessage {
     ImapError(String),
     MaildirChanged,
     MaildirError(String),
+}
+
+/// Check if a file system event from the watcher on the Maildir at `root`
+/// represents a change to the messages in that Maildir.
+///
+/// Platforms report changes differently: macOS (FSEvents) reports a Write
+/// on the new/ or cur/ directory itself, while Linux (inotify) only reports
+/// Create / Rename / Remove events for the message files. We accept either,
+/// but only in new/ and cur/: files in tmp/ are still being delivered and
+/// will be renamed into new/ or cur/ when complete, and anything deeper is
+/// a separate (nested) mailbox that this sync does not cover.
+fn is_maildir_change(event: &notify::DebouncedEvent, root: &Path) -> bool {
+    use notify::DebouncedEvent::*;
+    let new = root.join("new");
+    let cur = root.join("cur");
+    let relevant =
+        |p: &Path| p == new || p == cur || matches!(p.parent(), Some(d) if d == new || d == cur);
+    match event {
+        Create(p) | Write(p) | Remove(p) => relevant(p),
+        Rename(from, to) => relevant(from) || relevant(to),
+        Rescan => true,
+        NoticeWrite(_) | NoticeRemove(_) | Chmod(_) | Error(..) => false,
+    }
 }
 
 /// A struct representing a single mailbox to synchronize
@@ -106,26 +130,49 @@ impl SyncDir {
     /// a message is sent to the parent the main sync thread.
     fn fswait(&self) -> Result<JoinHandle<()>, String> {
         let sender = self.sender.clone();
+        // Watch the canonical path so the paths in events (which some
+        // platforms report with symlinks resolved) match what we compare
+        // against in is_maildir_change().
         let path = self.maildir.path();
+        let path = fs::canonicalize(&path).unwrap_or(path);
         let handle = spawn(move || {
             let (tx, rx) = channel();
-            let mut watcher = watcher(tx, Duration::from_secs(10)).unwrap();
-            watcher.watch(path, RecursiveMode::Recursive).unwrap();
+            let mut watcher = match watcher(tx, Duration::from_secs(10)) {
+                Ok(w) => w,
+                Err(e) => {
+                    sender
+                        .send(SyncMessage::MaildirError(format!("Cannot watch: {}", e)))
+                        .ok();
+                    return;
+                }
+            };
+            if let Err(e) = watcher.watch(&path, RecursiveMode::Recursive) {
+                sender
+                    .send(SyncMessage::MaildirError(format!(
+                        "Cannot watch {}: {}",
+                        path.display(),
+                        e
+                    )))
+                    .ok();
+                return;
+            }
             loop {
                 match rx.recv() {
+                    Ok(notify::DebouncedEvent::Error(e, p)) => {
+                        sender
+                            .send(SyncMessage::MaildirError(format!("{:?}: {}", p, e)))
+                            .ok();
+                    }
                     Ok(event) => {
-                        match event {
-                            notify::DebouncedEvent::Write(path) if path.is_dir() => {
-                                // trigger on dir writes only, which cover everything else
-                                sender.send(SyncMessage::MaildirChanged).ok();
-                            }
-                            _ => (),
+                        if is_maildir_change(&event, &path) {
+                            sender.send(SyncMessage::MaildirChanged).ok();
                         }
                     }
                     Err(e) => {
                         sender
                             .send(SyncMessage::MaildirError(format!("{:?}", e)))
                             .ok();
+                        break;
                     }
                 }
             }
@@ -633,5 +680,90 @@ impl SyncDir {
                 Ok(_) => break Ok(()),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use notify::DebouncedEvent::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn maildir_change_events() {
+        let root = PathBuf::from("/mail/acct/INBOX");
+        let p = |s: &str| root.join(s);
+        let change = |e| is_maildir_change(&e, &root);
+
+        // Linux (inotify) style: events on the message files
+        assert!(change(Create(p("new/1.host"))));
+        assert!(change(Remove(p("cur/1.host:2,S"))));
+        assert!(change(Write(p("cur/1.host:2,S"))));
+        assert!(change(Rename(p("tmp/1.host"), p("new/1.host"))));
+        assert!(change(Rename(p("new/1.host"), p("cur/1.host:2,S"))));
+        assert!(change(Rename(p("cur/1.host:2,S"), p("cur/1.host:2,RS"))));
+        // macOS (FSEvents) style: writes on the directories
+        assert!(change(Write(p("new"))));
+        assert!(change(Write(p("cur"))));
+        assert!(change(Rescan));
+
+        // In-progress deliveries
+        assert!(!change(Create(p("tmp/1.host"))));
+        assert!(!change(Write(p("tmp/1.host"))));
+        assert!(!change(Write(p("tmp"))));
+        assert!(!change(Remove(p("tmp/1.host"))));
+        // Nested mailboxes are synced separately
+        assert!(!change(Create(p("Sub/new/1.host"))));
+        assert!(!change(Write(p("Sub/cur"))));
+        assert!(!change(Create(p("Sub"))));
+        // Notices and attribute changes
+        assert!(!change(NoticeWrite(p("new/1.host"))));
+        assert!(!change(NoticeRemove(p("new/1.host"))));
+        assert!(!change(Chmod(p("new/1.host"))));
+    }
+
+    /// Deliver messages into a real Maildir and check that the platform
+    /// watcher produces events that we recognize as changes.
+    #[test]
+    fn maildir_watcher_sees_delivery() {
+        let dir = std::env::temp_dir().join(format!("runt-test-{}", std::process::id()));
+        let md = maildir::Maildir::from(dir.join("INBOX"));
+        md.create_dirs().unwrap();
+        let root = fs::canonicalize(md.path()).unwrap();
+
+        let (tx, rx) = channel();
+        let mut w = watcher(tx, Duration::from_millis(100)).unwrap();
+        w.watch(&root, RecursiveMode::Recursive).unwrap();
+
+        let saw_change = |what: &str| loop {
+            match rx.recv_timeout(Duration::from_secs(5)) {
+                Ok(event) if is_maildir_change(&event, &root) => break,
+                Ok(_) => continue,
+                Err(e) => panic!("no change event after {}: {}", what, e),
+            }
+        };
+        let drain = || while rx.recv_timeout(Duration::from_millis(500)).is_ok() {};
+
+        // New message, as delivered by an MDA (tmp/ then rename into new/)
+        let id = md.store_new(b"Subject: test\r\n\r\nbody\r\n").unwrap();
+        saw_change("store_new");
+        drain();
+
+        // Read by a client: moved to cur/ with flags
+        md.move_new_to_cur_with_flags(&id, "S").unwrap();
+        saw_change("move to cur");
+        drain();
+
+        // Flag change: renamed within cur/
+        md.set_flags(&id, "RS").unwrap();
+        saw_change("set_flags");
+        drain();
+
+        // Deleted
+        md.delete(&id).unwrap();
+        saw_change("delete");
+
+        drop(w);
+        fs::remove_dir_all(&dir).ok();
     }
 }
