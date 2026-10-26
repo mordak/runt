@@ -1,7 +1,7 @@
 use crate::config::Account;
+use imap::Session;
 use imap::extensions::idle;
 use imap::types::{Appended, Fetch, Fetches, Flag, Mailbox, Names, Uid, UnsolicitedResponse};
-use imap::Session;
 use imap::{Client, ClientBuilder, Connection};
 use std::convert::From;
 use std::time::Duration;
@@ -194,13 +194,11 @@ impl Imap {
             return Err("No mailbox selected".to_string());
         }
 
-        let r = self
-            .session
+        self.session
             .append(self.mailbox.as_ref().unwrap(), body)
             .flags(flags.iter().cloned())
             .finish()
-            .map_err(|e| e.to_string());
-        r
+            .map_err(|e| e.to_string())
     }
 
     /*

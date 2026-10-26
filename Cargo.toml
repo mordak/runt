@@ -2,7 +2,7 @@
 name = "runt"
 version = "0.3.0"
 authors = ["Todd Mortimer <todd@opennet.ca>"]
-edition = "2018"
+edition = "2024"
 description = "IMAP / Maildir synchronization program"
 repository = "https://github.com/mordak/runt"
 keywords = ["email", "imap", "maildir"]

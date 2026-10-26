@@ -1,5 +1,5 @@
 use crate::cache::messagemeta::MessageMeta;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 

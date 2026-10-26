@@ -155,11 +155,7 @@ impl SyncFlags {
                 FlagValue::Trashed => res.push(Flag::Deleted),
             }
         }
-        if !res.is_empty() {
-            Some(res)
-        } else {
-            None
-        }
+        if !res.is_empty() { Some(res) } else { None }
     }
 }
 

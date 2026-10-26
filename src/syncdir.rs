@@ -1,18 +1,18 @@
-use crate::cache::maildir_flags_from_imap;
 use crate::cache::Cache;
 use crate::cache::MessageMeta;
 use crate::cache::SyncFlags;
+use crate::cache::maildir_flags_from_imap;
 use crate::config::Account;
 use crate::imapw::{FetchResult, Imap, UidResult};
 use crate::maildirw::Maildir;
 use chrono::prelude::*;
 use imap::types::{Fetch, Fetches, Mailbox, Uid, UnsolicitedResponse};
-use notify::{watcher, RecursiveMode, Watcher};
+use notify::{RecursiveMode, Watcher, watcher};
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
-use std::sync::mpsc::{channel, Receiver, RecvError, Sender, TryRecvError};
-use std::thread::{sleep, spawn, JoinHandle};
+use std::sync::mpsc::{Receiver, RecvError, Sender, TryRecvError, channel};
+use std::thread::{JoinHandle, sleep, spawn};
 use std::time::Duration;
 use std::vec::Vec;
 

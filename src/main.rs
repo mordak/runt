@@ -1,13 +1,3 @@
-extern crate anyhow;
-extern crate chrono;
-extern crate dirs_next;
-extern crate imap;
-extern crate libc;
-extern crate maildir;
-extern crate notify;
-extern crate rusqlite;
-extern crate serde;
-extern crate toml;
 #[macro_use]
 extern crate serde_derive;
 
@@ -83,8 +73,15 @@ fn main() {
             }
 
             if pool_size == 0 && !pool_mailboxes.is_empty() {
-                println!("Account {}.max_concurrency ({}) is too small for the number of idle mailboxes ({}) and non-idle mailboxes.", config.account, max_threads, idle_mailboxes.len(), );
-                println!("You may see errors from the server and some mailboxes may not be synchronized.\nTo fix this, specify a number of mailboxes to idle that is smaller that max_concurrency, or increase max_concurrency if possible.");
+                println!(
+                    "Account {}.max_concurrency ({}) is too small for the number of idle mailboxes ({}) and non-idle mailboxes.",
+                    config.account,
+                    max_threads,
+                    idle_mailboxes.len(),
+                );
+                println!(
+                    "You may see errors from the server and some mailboxes may not be synchronized.\nTo fix this, specify a number of mailboxes to idle that is smaller that max_concurrency, or increase max_concurrency if possible."
+                );
                 pool_size = 1;
             }
         }
@@ -93,19 +90,18 @@ fn main() {
             threads.push(spawn(move || sd.sync()));
         });
 
-        if !pool_mailboxes.is_empty() {
-            if let Ok(pool) = rayon::ThreadPoolBuilder::new()
+        if !pool_mailboxes.is_empty()
+            && let Ok(pool) = rayon::ThreadPoolBuilder::new()
                 .num_threads(pool_size)
                 .build()
-            {
-                pool_mailboxes.into_iter().for_each(|mut sd| {
-                    pool.spawn(move || {
-                        if let Err(e) = sd.sync() {
-                            eprintln!("Synchronize-once for mailbox {} failed: {}", sd.mailbox, e);
-                        }
-                    })
-                });
-            }
+        {
+            pool_mailboxes.into_iter().for_each(|mut sd| {
+                pool.spawn(move || {
+                    if let Err(e) = sd.sync() {
+                        eprintln!("Synchronize-once for mailbox {} failed: {}", sd.mailbox, e);
+                    }
+                })
+            });
         }
     }
 
