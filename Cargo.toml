@@ -16,7 +16,8 @@ maintenance = { status = "actively-developed" }
 anyhow = "1.0.34"
 chrono = "0.4.10"
 dirs-next = "2.0.0"
-imap = { version = "3.0.0-alpha.4", default-features = false, features = ["rustls-tls"] }
+imap = { version = "3.0.0-alpha.14", default-features = false, features = ["rustls-tls"] }
+imap-proto = "0.16.5"
 libc = "0.2"
 maildir = "0.4.2"
 notify = "4.0.15"
@@ -28,3 +29,6 @@ serde = "1.0.104"
 serde_derive = "1.0.104"
 serde_json = "1.0.44"
 toml = "0.5.5"
+
+#[patch.crates-io]
+#imap = { path = "/home/todd/code/rust-imap" }

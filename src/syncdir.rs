@@ -6,11 +6,10 @@ use crate::config::Account;
 use crate::imapw::{FetchResult, Imap, UidResult};
 use crate::maildirw::Maildir;
 use chrono::prelude::*;
-use imap::types::{Fetch, Mailbox, Uid, UnsolicitedResponse, ZeroCopy};
+use imap::types::{Fetch, Fetches, Mailbox, Uid, UnsolicitedResponse};
 use notify::{watcher, RecursiveMode, Watcher};
 use std::collections::HashSet;
 use std::fs;
-use std::ops::Deref;
 use std::path::Path;
 use std::sync::mpsc::{channel, Receiver, RecvError, Sender, TryRecvError};
 use std::thread::{sleep, spawn, JoinHandle};
@@ -227,8 +226,8 @@ impl SyncDir {
     ///
     /// Used to fetch new messages from the server.
     fn cache_message_for_uid(&mut self, imap: &mut Imap, uid: Uid) -> Result<(), String> {
-        imap.fetch_uid(uid).and_then(|zc_vec_fetch| {
-            for fetch in zc_vec_fetch.deref() {
+        imap.fetch_uid(uid).and_then(|fetches| {
+            for fetch in fetches.iter() {
                 self.log(&format!("Fetching UID {}: {:?}", uid, fetch.flags()));
                 if let Err(e) = self.save_message_in_maildir(fetch) {
                     return Err(format!("Save UID {} in maildir failed: {}", uid, e));
@@ -285,13 +284,9 @@ impl SyncDir {
     /// Used to process a full set of IMAP FETCH results. Since the IMAP
     /// server is the source of truth, anything in the given FETCH results
     /// must be either existing / known or new and need to be downloaded.
-    fn cache_uids_from_imap(
-        &mut self,
-        imap: &mut Imap,
-        zc_vec_fetch: &ZeroCopy<Vec<Fetch>>,
-    ) -> Result<(), String> {
+    fn cache_uids_from_imap(&mut self, imap: &mut Imap, fetches: &Fetches) -> Result<(), String> {
         let mut err = false;
-        for fetch in zc_vec_fetch.deref() {
+        for fetch in fetches.iter() {
             match FetchResult::from(fetch) {
                 FetchResult::Uid(uidres) => {
                     let uid = uidres.uid();
@@ -353,16 +348,13 @@ impl SyncDir {
     /// cache db and Maildir. Any UIDs remaining in the cache db must have
     /// been deleted on the server and should be deleted from the cache db
     /// and the Maildir.
-    fn remove_imap_deleted_messages(
-        &mut self,
-        zc_vec_fetch: &ZeroCopy<Vec<Fetch>>,
-    ) -> Result<(), String> {
+    fn remove_imap_deleted_messages(&mut self, fetches: &Fetches) -> Result<(), String> {
         let mut err = false;
         self.cache.get_known_uids().and_then(|mut cached_uids| {
             // Remove all the fetched uids from the cached values
             // leaving only uids that are in the cache but not on
             // the server anymore.
-            for fetch in zc_vec_fetch.deref() {
+            for fetch in fetches.iter() {
                 match FetchResult::from(fetch) {
                     FetchResult::Uid(uidres) => {
                         let uid = uidres.uid();
